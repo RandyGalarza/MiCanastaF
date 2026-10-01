@@ -12,12 +12,14 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [correo, setCorreo] = useState('');
   const [contrasena, setContrasena] = useState('');
+  const [mostrarContrasena, setMostrarContrasena] = useState(false);
   const [cargando, setCargando] = useState(false);
 
   const handleLogin = async () => {
@@ -40,8 +42,12 @@ export default function LoginScreen() {
         return;
       }
 
-      Alert.alert('¡Bienvenido!', `Hola, ${usuario.nombre} ${usuario.apellido}`);
-      // Redireccionar al usuario a la vista deseada tras iniciar sesión
+      Alert.alert('¡Bienvenido!', `Hola, ${usuario.nombre} ${usuario.apellido}`, [
+        {
+          text: 'Continuar',
+          onPress: () => router.replace('/inicio'),
+        },
+      ]);
     } catch (error) {
       console.error(error);
       Alert.alert('Error', 'Ocurrió un error al intentar iniciar sesión.');
@@ -56,31 +62,56 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer}>
+        {/* Decoración sutil de fondo de la canasta */}
+        <View style={styles.backgroundCircle} />
+
         <View style={styles.card}>
+          <View style={styles.headerIconContainer}>
+            <Ionicons name="basket" size={42} color="#16a34a" />
+          </View>
+
           <Text style={styles.title}>Iniciar Sesión</Text>
           <Text style={styles.subtitle}>Mi Canasta Familiar</Text>
 
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Correo Electrónico</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="ejemplo@correo.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={correo}
-              onChangeText={setCorreo}
-            />
+            <View style={styles.inputWrapper}>
+              <Ionicons name="mail-outline" size={20} color="#64748b" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="ejemplo@correo.com"
+                placeholderTextColor="#94a3b8"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={correo}
+                onChangeText={setCorreo}
+              />
+            </View>
           </View>
 
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Contraseña</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="********"
-              secureTextEntry
-              value={contrasena}
-              onChangeText={setContrasena}
-            />
+            <View style={styles.inputWrapper}>
+              <Ionicons name="lock-closed-outline" size={20} color="#64748b" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="********"
+                placeholderTextColor="#94a3b8"
+                secureTextEntry={!mostrarContrasena}
+                value={contrasena}
+                onChangeText={setContrasena}
+              />
+              <TouchableOpacity
+                onPress={() => setMostrarContrasena(!mostrarContrasena)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={mostrarContrasena ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color="#64748b"
+                />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <TouchableOpacity
@@ -117,35 +148,53 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f4f6f8',
+    backgroundColor: '#f0fdf4', // Fondo verde menta muy suave y limpio
   },
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
     padding: 20,
+    position: 'relative',
+  },
+  backgroundCircle: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#dcfce7',
+    opacity: 0.7,
   },
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 24,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    boxShadow: '0px 4px 12px rgba(22, 163, 74, 0.08)',
+  },
+  headerIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#dcfce7',
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
   title: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#1a253c',
+    color: '#14532d',
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: '#6c757d',
+    color: '#16a34a',
     textAlign: 'center',
     marginBottom: 24,
-    marginTop: 4,
+    marginTop: 2,
+    fontWeight: '500',
   },
   inputContainer: {
     marginBottom: 16,
@@ -156,33 +205,44 @@ const styles = StyleSheet.create({
     color: '#334155',
     marginBottom: 6,
   },
-  input: {
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#cbd5e1',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
+    borderRadius: 12,
     backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 15,
     color: '#0f172a',
+  },
+  eyeIcon: {
+    padding: 6,
   },
   linkRight: {
     alignSelf: 'flex-end',
     marginBottom: 20,
   },
   linkText: {
-    color: '#2563eb',
+    color: '#16a34a',
     fontSize: 14,
+    fontWeight: '600',
   },
   bold: {
     fontWeight: 'bold',
   },
   buttonPrimary: {
-    backgroundColor: '#2563eb',
-    borderRadius: 10,
+    backgroundColor: '#16a34a',
+    borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
-    elevation: 1,
   },
   buttonPrimaryText: {
     color: '#ffffff',
