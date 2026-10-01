@@ -1,18 +1,16 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { Stack } from 'expo-router';
+import { useEffect } from 'react';
+import { initializeDatabase } from '../src/database/database';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+export default function RootLayout() {
+  useEffect(() => {
+    initializeDatabase().catch((error) => {
+      console.error('Error inicializando la BD:', error);
+    });
+  }, []);
 
-SplashScreen.preventAutoHideAsync();
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
-  );
+  return <Stack />;
 }
+
+await initializeDatabase();
+await seedDatabase();
