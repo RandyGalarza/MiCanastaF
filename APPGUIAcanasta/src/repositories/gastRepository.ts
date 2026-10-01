@@ -78,10 +78,11 @@ export async function actualizarGasto(
       id_producto ?? null,
       monto,
       cantidad,
-      fecha,
+      fecha ?? new Date().toISOString().split('T')[0],
       descripcion ?? null,
       id_gasto
     ]
+
   );
 }
 

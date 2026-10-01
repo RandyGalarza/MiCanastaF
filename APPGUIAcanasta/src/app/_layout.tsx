@@ -1,16 +1,22 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
-import { initializeDatabase } from '../src/database/database';
+import { initializeDatabase } from '../database/database';
+import { seedDatabase } from '../database/seed';
 
 export default function RootLayout() {
   useEffect(() => {
-    initializeDatabase().catch((error) => {
-      console.error('Error inicializando la BD:', error);
-    });
+    async function init() {
+      try {
+        await initializeDatabase();
+        await seedDatabase();
+      } catch (error) {
+        console.error('Error inicializando la BD:', error);
+      }
+    }
+    init();
   }, []);
 
-  return <Stack />;
+  return (
+    <Stack screenOptions={{ headerShown: false }} />
+  );
 }
-
-await initializeDatabase();
-await seedDatabase();

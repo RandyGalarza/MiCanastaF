@@ -109,3 +109,21 @@ export async function eliminarUsuario(
     [id_usuario]
   );
 }
+
+export async function actualizarContrasenaPorCorreo(
+  correo: string,
+  nuevaContrasena: string
+): Promise<boolean> {
+  const db = await getDatabase();
+
+  const result = await db.runAsync(
+    `
+    UPDATE usuarios
+    SET contrasena = ?
+    WHERE correo = ? AND estado = 1
+    `,
+    [nuevaContrasena, correo]
+  );
+
+  return result.changes > 0;
+}
