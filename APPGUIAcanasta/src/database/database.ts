@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import * as SQLite from 'expo-sqlite';
+import { openNativeDatabase } from './sqlite-driver';
 import { DATABASE_SCHEMA } from './schema';
 
 export interface DatabaseConnection {
@@ -9,13 +9,57 @@ export interface DatabaseConnection {
   getAllAsync<T>(sql: string, params?: any): Promise<T[]>;
 }
 
-// Adaptador web en memoria para simular las operaciones SQLite cuando se ejecuta en navegador
+const WEB_DB_KEY = 'canasta_familiar_db';
+const WEB_DB_VERSION = '2'; // Incrementar cuando cambie el schema o seed
+
+// Adaptador web con persistencia en localStorage versionada
 class WebDatabaseAdapter implements DatabaseConnection {
   private tables: Record<string, any[]> = {};
   private autoIncrements: Record<string, number> = {};
 
+  constructor() {
+    this.loadFromStorage();
+  }
+
+  private loadFromStorage() {
+    try {
+      const version = localStorage.getItem(`${WEB_DB_KEY}_version`);
+      // Si la versión no coincide, borrar datos y empezar fresco
+      if (version !== WEB_DB_VERSION) {
+        localStorage.removeItem(WEB_DB_KEY);
+        localStorage.setItem(`${WEB_DB_KEY}_version`, WEB_DB_VERSION);
+        this.tables = {};
+        this.autoIncrements = {};
+        console.log('DB Web: nueva versión detectada, datos reiniciados.');
+        return;
+      }
+
+      const stored = localStorage.getItem(WEB_DB_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        this.tables = parsed.tables || {};
+        this.autoIncrements = parsed.autoIncrements || {};
+      }
+    } catch (e) {
+      this.tables = {};
+      this.autoIncrements = {};
+    }
+  }
+
+  private saveToStorage() {
+    try {
+      localStorage.setItem(WEB_DB_KEY, JSON.stringify({
+        tables: this.tables,
+        autoIncrements: this.autoIncrements,
+      }));
+    } catch (e) {
+      console.warn('No se pudo guardar en localStorage:', e);
+    }
+  }
+
   async execAsync(sql: string): Promise<void> {
     const createStatements = sql.split(';').filter((s) => s.trim().length > 0);
+    let changed = false;
     for (const statement of createStatements) {
       const match = statement.match(/CREATE TABLE IF NOT EXISTS (\w+)/i);
       if (match && match[1]) {
@@ -23,42 +67,69 @@ class WebDatabaseAdapter implements DatabaseConnection {
         if (!this.tables[tableName]) {
           this.tables[tableName] = [];
           this.autoIncrements[tableName] = 1;
+          changed = true;
         }
       }
     }
+    if (changed) this.saveToStorage();
   }
 
   async runAsync(sql: string, params: any = []): Promise<{ lastInsertRowId: number; changes: number }> {
     const trimmed = sql.trim();
     const paramList: any[] = Array.isArray(params) ? params : [params];
 
-    // Simulación de INSERT INTO
+    // INSERT
     const insertMatch = trimmed.match(/INSERT (?:OR IGNORE )?INTO (\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i);
     if (insertMatch) {
       const tableName = insertMatch[1];
+      const isIgnore = /INSERT OR IGNORE/i.test(trimmed);
       const cols = insertMatch[2].split(',').map((c) => c.trim());
+
       if (!this.tables[tableName]) {
         this.tables[tableName] = [];
         this.autoIncrements[tableName] = 1;
+      }
+
+      // Para INSERT OR IGNORE: verificar unicidad por correo
+      if (isIgnore && tableName === 'usuarios') {
+        const correoIdx = cols.indexOf('correo');
+        if (correoIdx >= 0) {
+          const correoVal = paramList[correoIdx];
+          const exists = this.tables[tableName].some((r) => r.correo === correoVal);
+          if (exists) return { lastInsertRowId: 0, changes: 0 };
+        }
+      }
+      // Para INSERT OR IGNORE en categorias: verificar unicidad por nombre
+      if (isIgnore && tableName === 'categorias') {
+        const nombreIdx = cols.indexOf('nombre');
+        if (nombreIdx >= 0) {
+          const nombreVal = paramList[nombreIdx];
+          const exists = this.tables[tableName].some((r) => r.nombre === nombreVal);
+          if (exists) return { lastInsertRowId: 0, changes: 0 };
+        }
       }
 
       const currentAutoId = this.autoIncrements[tableName] || 1;
       this.autoIncrements[tableName] = currentAutoId + 1;
       const newRecord: Record<string, any> = {};
 
+      // Defaults
       const idKey = `id_${tableName.replace(/s$/, '')}`;
       newRecord[idKey] = currentAutoId;
+      newRecord['fecha_registro'] = new Date().toISOString().split('T')[0];
+      newRecord['estado'] = 1;
 
       cols.forEach((col, idx) => {
         newRecord[col] = paramList[idx] !== undefined ? paramList[idx] : null;
       });
 
       this.tables[tableName].push(newRecord);
+      this.saveToStorage();
       return { lastInsertRowId: currentAutoId, changes: 1 };
     }
 
-    // Simulación de UPDATE usuarios
-    const updateMatch = trimmed.match(/UPDATE (\w+)\s+SET\s+(.+)\s+WHERE\s+(.+)/i);
+    // UPDATE
+    const updateMatch = trimmed.match(/UPDATE (\w+)\s+SET\s+([\s\S]+?)\s+WHERE\s+([\s\S]+)/i);
     if (updateMatch) {
       const tableName = updateMatch[1];
       const setClause = updateMatch[2];
@@ -91,6 +162,7 @@ class WebDatabaseAdapter implements DatabaseConnection {
         }
       });
 
+      if (changes > 0) this.saveToStorage();
       return { lastInsertRowId: 0, changes };
     }
 
@@ -137,7 +209,8 @@ export async function getDatabase(): Promise<DatabaseConnection> {
     if (Platform.OS === 'web') {
       database = new WebDatabaseAdapter();
     } else {
-      database = (await SQLite.openDatabaseAsync('canasta_familiar.db')) as unknown as DatabaseConnection;
+      const db = await openNativeDatabase('canasta_familiar.db');
+      database = db as unknown as DatabaseConnection;
     }
   }
 

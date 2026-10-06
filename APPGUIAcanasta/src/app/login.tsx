@@ -5,15 +5,21 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
+import { Toast, ToastType } from '../components/toast';
+
+const DEMO_USERS = [
+  { nombre: 'Randy Galarza', correo: 'randy@canasta.com', contrasena: 'demo123' },
+  { nombre: 'Loreley Gonzales', correo: 'loreley@canasta.com', contrasena: 'demo123' },
+  {nombre: 'Pedro Brugues', correo: 'pedro@canasta.com', contrasena: 'demo123'},
+];
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -21,10 +27,17 @@ export default function LoginScreen() {
   const [contrasena, setContrasena] = useState('');
   const [mostrarContrasena, setMostrarContrasena] = useState(false);
   const [cargando, setCargando] = useState(false);
+  const [toast, setToast] = useState<{ visible: boolean; message: string; type: ToastType }>({
+    visible: false, message: '', type: 'info',
+  });
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+    setToast({ visible: true, message, type });
+  };
 
   const handleLogin = async () => {
     if (!correo.trim() || !contrasena.trim()) {
-      Alert.alert('Error', 'Por favor ingresa tu correo y contraseña.');
+      showToast('Por favor ingresa tu correo y contraseña.', 'error');
       return;
     }
 
@@ -33,27 +46,28 @@ export default function LoginScreen() {
       const usuario = await obtenerUsuarioPorCorreo(correo.trim());
 
       if (!usuario) {
-        Alert.alert('Error', 'El correo ingresado no se encuentra registrado.');
+        showToast('El correo ingresado no se encuentra registrado.', 'error');
         return;
       }
 
       if (usuario.contrasena !== contrasena) {
-        Alert.alert('Error', 'Contraseña incorrecta.');
+        showToast('Contraseña incorrecta.', 'error');
         return;
       }
 
-      Alert.alert('¡Bienvenido!', `Hola, ${usuario.nombre} ${usuario.apellido}`, [
-        {
-          text: 'Continuar',
-          onPress: () => router.replace('/inicio'),
-        },
-      ]);
+      showToast(`¡Bienvenido, ${usuario.nombre}!`, 'success');
+      setTimeout(() => router.replace('/inicio'), 1200);
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Ocurrió un error al intentar iniciar sesión.');
+      showToast('Ocurrió un error al intentar iniciar sesión.', 'error');
     } finally {
       setCargando(false);
     }
+  };
+
+  const fillDemo = (user: typeof DEMO_USERS[0]) => {
+    setCorreo(user.correo);
+    setContrasena(user.contrasena);
   };
 
   return (
@@ -61,8 +75,14 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <Toast
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+        onHide={() => setToast((t) => ({ ...t, visible: false }))}
+      />
+
       <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* Decoración sutil de fondo de la canasta */}
         <View style={styles.backgroundCircle} />
 
         <View style={styles.card}>
@@ -72,6 +92,23 @@ export default function LoginScreen() {
 
           <Text style={styles.title}>Iniciar Sesión</Text>
           <Text style={styles.subtitle}>Mi Canasta Familiar</Text>
+
+          {/* Usuarios de demo */}
+          <View style={styles.demoContainer}>
+            <Text style={styles.demoLabel}>Acceso rápido de prueba</Text>
+            <View style={styles.demoRow}>
+              {DEMO_USERS.map((u) => (
+                <TouchableOpacity
+                  key={u.correo}
+                  style={styles.demoButton}
+                  onPress={() => fillDemo(u)}
+                >
+                  <Ionicons name="flash" size={13} color="#16a34a" />
+                  <Text style={styles.demoButtonText}>{u.nombre.split(' ')[0]}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
 
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Correo Electrónico</Text>
@@ -101,10 +138,7 @@ export default function LoginScreen() {
                 value={contrasena}
                 onChangeText={setContrasena}
               />
-              <TouchableOpacity
-                onPress={() => setMostrarContrasena(!mostrarContrasena)}
-                style={styles.eyeIcon}
-              >
+              <TouchableOpacity onPress={() => setMostrarContrasena(!mostrarContrasena)} style={styles.eyeIcon}>
                 <Ionicons
                   name={mostrarContrasena ? 'eye-off-outline' : 'eye-outline'}
                   size={20}
@@ -148,7 +182,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0fdf4', // Fondo verde menta muy suave y limpio
+    backgroundColor: '#f0fdf4',
   },
   scrollContainer: {
     flexGrow: 1,
@@ -192,9 +226,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#16a34a',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 18,
     marginTop: 2,
     fontWeight: '500',
+  },
+  demoContainer: {
+    backgroundColor: '#f0fdf4',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  demoLabel: {
+    fontSize: 11,
+    color: '#16a34a',
+    fontWeight: '600',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  demoRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  demoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#dcfce7',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#86efac',
+  },
+  demoButtonText: {
+    fontSize: 13,
+    color: '#14532d',
+    fontWeight: '600',
   },
   inputContainer: {
     marginBottom: 16,

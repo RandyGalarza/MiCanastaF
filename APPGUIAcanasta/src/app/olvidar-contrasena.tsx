@@ -5,7 +5,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -14,6 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
+import { mostrarAlerta } from '../utils/alerts';
 
 export default function OlvidarContrasenaScreen() {
   const router = useRouter();
@@ -22,7 +22,7 @@ export default function OlvidarContrasenaScreen() {
 
   const handleSolicitarCodigo = async () => {
     if (!correo.trim()) {
-      Alert.alert('Error', 'Por favor ingresa tu correo electrónico.');
+      mostrarAlerta('Error', 'Por favor ingresa tu correo electrónico.');
       return;
     }
 
@@ -31,11 +31,11 @@ export default function OlvidarContrasenaScreen() {
       const usuario = await obtenerUsuarioPorCorreo(correo.trim());
 
       if (!usuario) {
-        Alert.alert('Error', 'No existe una cuenta asociada a este correo.');
+        mostrarAlerta('Error', 'No existe una cuenta asociada a este correo.');
         return;
       }
 
-      Alert.alert(
+      mostrarAlerta(
         'Verificación',
         'Se ha verificado tu cuenta. Procede a restablecer tu contraseña.',
         [
@@ -51,7 +51,7 @@ export default function OlvidarContrasenaScreen() {
       );
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Ocurrió un problema al verificar la información.');
+      mostrarAlerta('Error', 'Ocurrió un problema al verificar la información.');
     } finally {
       setCargando(false);
     }

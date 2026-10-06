@@ -5,15 +5,16 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { crearUsuario, obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
+import { Toast, ToastType } from '../components/toast';
+
 
 export default function RegistroScreen() {
   const router = useRouter();
@@ -26,20 +27,28 @@ export default function RegistroScreen() {
   const [mostrarContrasena, setMostrarContrasena] = useState(false);
   const [mostrarConfirmar, setMostrarConfirmar] = useState(false);
   const [cargando, setCargando] = useState(false);
+  const [toast, setToast] = useState<{ visible: boolean; message: string; type: ToastType }>({
+    visible: false, message: '', type: 'info',
+  });
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+    setToast({ visible: true, message, type });
+  };
+
 
   const handleRegistro = async () => {
     if (!nombre.trim() || !apellido.trim() || !correo.trim() || !contrasena.trim()) {
-      Alert.alert('Error', 'Por favor completa los campos obligatorios (*).');
+      showToast('Por favor completa los campos obligatorios (*).', 'error');
       return;
     }
 
     if (contrasena !== confirmarContrasena) {
-      Alert.alert('Error', 'Las contraseñas no coinciden.');
+      showToast('Las contraseñas no coinciden.', 'error');
       return;
     }
 
     if (contrasena.length < 6) {
-      Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres.');
+      showToast('La contraseña debe tener al menos 6 caracteres.', 'error');
       return;
     }
 
@@ -47,7 +56,7 @@ export default function RegistroScreen() {
       setCargando(true);
       const existe = await obtenerUsuarioPorCorreo(correo.trim());
       if (existe) {
-        Alert.alert('Error', 'El correo ya se encuentra registrado.');
+        showToast('El correo ya se encuentra registrado.', 'error');
         return;
       }
 
@@ -59,15 +68,11 @@ export default function RegistroScreen() {
         telefono.trim() || undefined
       );
 
-      Alert.alert('Éxito', 'Cuenta registrada correctamente.', [
-        {
-          text: 'Iniciar Sesión',
-          onPress: () => router.replace('/login'),
-        },
-      ]);
+      showToast('¡Cuenta creada! Ahora puedes iniciar sesión.', 'success');
+      setTimeout(() => router.replace('/login'), 1500);
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'No se pudo completar el registro.');
+      showToast('No se pudo completar el registro.', 'error');
     } finally {
       setCargando(false);
     }
@@ -78,6 +83,12 @@ export default function RegistroScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <Toast
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+        onHide={() => setToast((t) => ({ ...t, visible: false }))}
+      />
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.backgroundCircle} />
 
@@ -88,6 +99,7 @@ export default function RegistroScreen() {
 
           <Text style={styles.title}>Crear Cuenta</Text>
           <Text style={styles.subtitle}>Únete a Mi Canasta Familiar</Text>
+
 
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Nombre *</Text>

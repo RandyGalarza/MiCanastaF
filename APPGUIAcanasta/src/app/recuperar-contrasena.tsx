@@ -5,7 +5,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -14,6 +13,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { actualizarContrasenaPorCorreo } from '../repositories/usuarioRepository';
+import { mostrarAlerta } from '../utils/alerts';
 
 export default function RecuperarContrasenaScreen() {
   const router = useRouter();
@@ -27,17 +27,17 @@ export default function RecuperarContrasenaScreen() {
 
   const handleRestablecer = async () => {
     if (!correo.trim() || !nuevaContrasena.trim() || !confirmarContrasena.trim()) {
-      Alert.alert('Error', 'Por favor completa todos los campos.');
+      mostrarAlerta('Error', 'Por favor completa todos los campos.');
       return;
     }
 
     if (nuevaContrasena !== confirmarContrasena) {
-      Alert.alert('Error', 'Las contraseñas no coinciden.');
+      mostrarAlerta('Error', 'Las contraseñas no coinciden.');
       return;
     }
 
     if (nuevaContrasena.length < 6) {
-      Alert.alert('Error', 'La contraseña debe contener al menos 6 caracteres.');
+      mostrarAlerta('Error', 'La contraseña debe contener al menos 6 caracteres.');
       return;
     }
 
@@ -49,7 +49,7 @@ export default function RecuperarContrasenaScreen() {
       );
 
       if (exito) {
-        Alert.alert(
+        mostrarAlerta(
           'Éxito',
           'Tu contraseña ha sido actualizada correctamente.',
           [
@@ -60,11 +60,11 @@ export default function RecuperarContrasenaScreen() {
           ]
         );
       } else {
-        Alert.alert('Error', 'No se pudo encontrar el usuario para actualizar la contraseña.');
+        mostrarAlerta('Error', 'No se pudo encontrar el usuario para actualizar la contraseña.');
       }
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Ocurrió un problema al actualizar la contraseña.');
+      mostrarAlerta('Error', 'Ocurrió un problema al actualizar la contraseña.');
     } finally {
       setCargando(false);
     }
