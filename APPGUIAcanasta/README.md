@@ -31,7 +31,6 @@ Para ver la documentación completa y el código fuente del proyecto, ingresa a 
 
 1. **Instalar dependencias:**
    ```bash
-   cd APPGUIAcanasta
    npm install
    ```
 
