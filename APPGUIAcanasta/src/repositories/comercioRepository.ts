@@ -38,7 +38,7 @@ export async function obtenerComercios(): Promise<Comercio[]> {
     `
     SELECT *
     FROM comercios
-    WHERE estado = 1
+    WHERE com_estado = 1
     ORDER BY nombre ASC
     `
   );
@@ -81,7 +81,7 @@ export async function eliminarComercio(
   await db.runAsync(
     `
     UPDATE comercios
-    SET estado = 0
+    SET com_estado = 0
     WHERE id_comercio = ?
     `,
     [id_comercio]

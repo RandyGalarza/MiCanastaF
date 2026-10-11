@@ -14,6 +14,8 @@ Para ver la documentación completa y el código fuente del proyecto, ingresa a 
 - **Recuperación de Contraseña:** Proceso de verificación por correo electrónico y actualización de clave.
 - **Visualización de Contraseña:** Opción para alternar la visibilidad de caracteres al escribir la contraseña.
 - **Persistencia Local y Multiplataforma:** Uso de SQLite (`expo-sqlite`) para almacenamiento nativo en Android/iOS y un adaptador multiplataforma para navegación Web.
+- **Navegación principal:** Barra inferior con estilo verde a juego con el login. Inicio abre con un mensaje de bienvenida; Productos, Lista de compra y Presupuesto son pantallas iniciales. Cuenta permite acceder al inicio de sesión sin exigirlo al abrir la app, muestra el perfil activo y ofrece cerrar sesión.
+- **Modelo de datos:** SQLite utiliza las entidades del modelo del PDF: usuarios, presupuestos, categorías, productos, comercios, precios, listas y facturas con sus detalles. Se conserva `contrasena` en usuarios para mantener el acceso actual.
 
 ---
 

@@ -4,7 +4,7 @@ import { Presupuesto } from '../types/database';
 export async function crearPresupuesto(
   id_usuario: number,
   nombre: string,
-  monto_total: number,
+  monto: number,
   fecha_inicio: string,
   fecha_fin: string
 ): Promise<number> {
@@ -16,18 +16,20 @@ export async function crearPresupuesto(
     (
       id_usuario,
       nombre,
-      monto_total,
+      monto,
       fecha_inicio,
-      fecha_fin
+      fecha_fin,
+      pre_estado
     )
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
     `,
     [
       id_usuario,
       nombre,
-      monto_total,
+      monto,
       fecha_inicio,
-      fecha_fin
+      fecha_fin,
+      1
     ]
   );
 
@@ -53,10 +55,10 @@ export async function obtenerPresupuestos(
 export async function actualizarPresupuesto(
   id_presupuesto: number,
   nombre: string,
-  monto_total: number,
+  monto: number,
   fecha_inicio: string,
   fecha_fin: string,
-  estado: string
+  pre_estado: number
 ): Promise<void> {
   const db = await getDatabase();
 
@@ -65,18 +67,18 @@ export async function actualizarPresupuesto(
     UPDATE presupuestos
     SET
       nombre = ?,
-      monto_total = ?,
+      monto = ?,
       fecha_inicio = ?,
       fecha_fin = ?,
-      estado = ?
+      pre_estado = ?
     WHERE id_presupuesto = ?
     `,
     [
       nombre,
-      monto_total,
+      monto,
       fecha_inicio,
       fecha_fin,
-      estado,
+      pre_estado,
       id_presupuesto
     ]
   );

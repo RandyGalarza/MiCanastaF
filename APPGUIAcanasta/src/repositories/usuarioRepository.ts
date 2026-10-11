@@ -61,7 +61,7 @@ export async function obtenerUsuarioPorCorreo(
     SELECT *
     FROM usuarios
     WHERE correo = ?
-      AND estado = 1
+      AND usu_estado = 1
     `,
     [correo]
   );
@@ -103,7 +103,7 @@ export async function eliminarUsuario(
   await db.runAsync(
     `
     UPDATE usuarios
-    SET estado = 0
+    SET usu_estado = 0
     WHERE id_usuario = ?
     `,
     [id_usuario]
@@ -120,7 +120,7 @@ export async function actualizarContrasenaPorCorreo(
     `
     UPDATE usuarios
     SET contrasena = ?
-    WHERE correo = ? AND estado = 1
+    WHERE correo = ? AND usu_estado = 1
     `,
     [nuevaContrasena, correo]
   );

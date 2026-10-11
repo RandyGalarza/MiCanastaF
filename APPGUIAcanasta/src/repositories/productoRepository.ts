@@ -3,6 +3,7 @@ import { Producto } from '../types/database';
 
 export async function crearProducto(
   id_categoria: number,
+  id_comercio: number,
   nombre: string,
   unidad_medida: string,
   marca?: string,
@@ -15,15 +16,17 @@ export async function crearProducto(
     INSERT INTO productos
     (
       id_categoria,
+      id_comercio,
       nombre,
       unidad_medida,
       marca,
       descripcion
     )
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
     `,
     [
       id_categoria,
+      id_comercio,
       nombre,
       unidad_medida,
       marca ?? null,
@@ -41,7 +44,7 @@ export async function obtenerProductos(): Promise<Producto[]> {
     `
     SELECT *
     FROM productos
-    WHERE activo = 1
+    WHERE pro_estado = 1
     ORDER BY nombre ASC
     `
   );
@@ -67,6 +70,7 @@ export async function obtenerProducto(
 export async function actualizarProducto(
   id_producto: number,
   id_categoria: number,
+  id_comercio: number,
   nombre: string,
   unidad_medida: string,
   marca?: string,
@@ -79,6 +83,7 @@ export async function actualizarProducto(
     UPDATE productos
     SET
       id_categoria = ?,
+      id_comercio = ?,
       nombre = ?,
       unidad_medida = ?,
       marca = ?,
@@ -87,6 +92,7 @@ export async function actualizarProducto(
     `,
     [
       id_categoria,
+      id_comercio,
       nombre,
       unidad_medida,
       marca ?? null,
@@ -104,7 +110,7 @@ export async function eliminarProducto(
   await db.runAsync(
     `
     UPDATE productos
-    SET activo = 0
+    SET pro_estado = 0
     WHERE id_producto = ?
     `,
     [id_producto]

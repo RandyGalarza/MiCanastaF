@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 import { initializeDatabase } from '../database/database';
 import { seedDatabase } from '../database/seed';
+import { AuthProvider } from '../contexts/auth-context';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -17,6 +18,8 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <Stack screenOptions={{ headerShown: false }} />
+    <AuthProvider>
+      <Stack screenOptions={{ headerShown: false }} />
+    </AuthProvider>
   );
 }

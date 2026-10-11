@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
 import { Toast, ToastType } from '../components/toast';
+import { useAuth } from '../contexts/auth-context';
 
 const DEMO_USERS = [
   { nombre: 'Randy Galarza', correo: 'randy@canasta.com', contrasena: 'demo123' },
@@ -23,6 +24,7 @@ const DEMO_USERS = [
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { signIn } = useAuth();
   const [correo, setCorreo] = useState('');
   const [contrasena, setContrasena] = useState('');
   const [mostrarContrasena, setMostrarContrasena] = useState(false);
@@ -55,8 +57,9 @@ export default function LoginScreen() {
         return;
       }
 
+      signIn(usuario);
       showToast(`¡Bienvenido, ${usuario.nombre}!`, 'success');
-      setTimeout(() => router.replace('/inicio'), 1200);
+      setTimeout(() => router.replace('/(tabs)/cuenta'), 1200);
     } catch (error) {
       console.error(error);
       showToast('Ocurrió un error al intentar iniciar sesión.', 'error');
