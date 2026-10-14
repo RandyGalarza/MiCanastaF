@@ -25,6 +25,21 @@ import { obtenerComercios } from '@/repositories/comercioRepository';
 import { obtenerCategorias } from '@/repositories/categoriaRepository';
 import { Toast, ToastType } from '@/components/toast';
 
+const UNIDADES_COMUNES = [
+  'Unidad',
+  'Kilogramo (kg)',
+  'Gramo (g)',
+  'Libra (lb)',
+  'Litro (L)',
+  'Mililitro (ml)',
+  'Paquete',
+  'Bolsa',
+  'Caja',
+  'Lata',
+  'Docena',
+  'Otro',
+] as const;
+
 export default function ProductosScreen() {
   const { user, isAdmin, isComercio } = useAuth();
 
@@ -45,6 +60,8 @@ export default function ProductosScreen() {
   const [marca, setMarca] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [unidadMedida, setUnidadMedida] = useState('Unidad');
+  const [otraUnidad, setOtraUnidad] = useState('');
+  const [mostrarDropdownUnidad, setMostrarDropdownUnidad] = useState(false);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<number | null>(null);
   const [comercioSeleccionado, setComercioSeleccionado] = useState<number | null>(null);
 
@@ -130,6 +147,8 @@ export default function ProductosScreen() {
     setMarca('');
     setDescripcion('');
     setUnidadMedida('Unidad');
+    setOtraUnidad('');
+    setMostrarDropdownUnidad(false);
     if (categorias.length > 0) {
       setCategoriaSeleccionada(categorias[0].id_categoria);
     }
@@ -150,7 +169,19 @@ export default function ProductosScreen() {
     setNombre(prod.nombre);
     setMarca(prod.marca || '');
     setDescripcion(prod.descripcion || '');
-    setUnidadMedida(prod.unidad_medida || 'Unidad');
+    setMostrarDropdownUnidad(false);
+
+    const matchUnidad = UNIDADES_COMUNES.find(
+      (u) => u.toLowerCase() === (prod.unidad_medida || '').toLowerCase()
+    );
+    if (matchUnidad) {
+      setUnidadMedida(matchUnidad);
+      setOtraUnidad('');
+    } else {
+      setUnidadMedida('Otro');
+      setOtraUnidad(prod.unidad_medida || '');
+    }
+
     setCategoriaSeleccionada(prod.id_categoria);
     setComercioSeleccionado(prod.id_comercio ?? (miComercioId || 1));
     setModalVisible(true);
@@ -170,6 +201,11 @@ export default function ProductosScreen() {
       return;
     }
 
+    const unidadFinal =
+      unidadMedida === 'Otro'
+        ? otraUnidad.trim() || 'Otro'
+        : unidadMedida;
+
     // Para usuario comercio, forzar siempre su comercio asignado
     const comercioFinal = isComercio && miComercioId ? miComercioId : (comercioSeleccionado || 1);
 
@@ -185,7 +221,7 @@ export default function ProductosScreen() {
           categoriaSeleccionada,
           comercioFinal,
           nombre.trim(),
-          unidadMedida.trim() || 'Unidad',
+          unidadFinal,
           marca.trim() || undefined,
           descripcion.trim() || undefined
         );
@@ -195,7 +231,7 @@ export default function ProductosScreen() {
           categoriaSeleccionada,
           comercioFinal,
           nombre.trim(),
-          unidadMedida.trim() || 'Unidad',
+          unidadFinal,
           marca.trim() || undefined,
           descripcion.trim() || undefined
         );
@@ -518,12 +554,71 @@ export default function ProductosScreen() {
               />
 
               <Text style={styles.fieldLabel}>Unidad de Medida *</Text>
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Ej. Unidad, Kg, Litro, Libra"
-                value={unidadMedida}
-                onChangeText={setUnidadMedida}
-              />
+              <TouchableOpacity
+                style={styles.dropdownTrigger}
+                onPress={() => setMostrarDropdownUnidad(!mostrarDropdownUnidad)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.dropdownLeft}>
+                  <Ionicons name="scale-outline" size={18} color="#16a34a" />
+                  <Text style={styles.dropdownTriggerText}>{unidadMedida}</Text>
+                </View>
+                <Ionicons
+                  name={mostrarDropdownUnidad ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color="#64748b"
+                />
+              </TouchableOpacity>
+
+              {mostrarDropdownUnidad && (
+                <View style={styles.dropdownList}>
+                  {UNIDADES_COMUNES.map((unidad) => {
+                    const isSelected = unidadMedida === unidad;
+                    return (
+                      <TouchableOpacity
+                        key={unidad}
+                        style={[
+                          styles.dropdownItem,
+                          isSelected && styles.dropdownItemSelected,
+                        ]}
+                        onPress={() => {
+                          setUnidadMedida(unidad);
+                          setMostrarDropdownUnidad(false);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.dropdownItemText,
+                            isSelected && styles.dropdownItemTextSelected,
+                          ]}
+                        >
+                          {unidad}
+                        </Text>
+                        {isSelected && (
+                          <Ionicons name="checkmark" size={16} color="#15803d" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* Campo para especificar cuando elige 'Otro' */}
+              {unidadMedida === 'Otro' && (
+                <View style={styles.customUnitContainer}>
+                  <Text style={styles.customUnitHint}>
+                    Escribe la medida personalizada (ej. Atado, Galón, Porción):
+                  </Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="Escribe la unidad aquí..."
+                    placeholderTextColor="#94a3b8"
+                    value={otraUnidad}
+                    onChangeText={setOtraUnidad}
+                    autoFocus
+                  />
+                </View>
+              )}
 
               <Text style={styles.fieldLabel}>Categoría</Text>
               <View style={styles.pickerRow}>
@@ -945,6 +1040,70 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 14,
     color: '#0f172a',
+  },
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  dropdownLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dropdownTriggerText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  dropdownList: {
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    marginTop: 4,
+    overflow: 'hidden',
+    boxShadow: '0px 4px 10px rgba(0,0,0,0.08)',
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  dropdownItemSelected: {
+    backgroundColor: '#f0fdf4',
+  },
+  dropdownItemText: {
+    fontSize: 13,
+    color: '#334155',
+  },
+  dropdownItemTextSelected: {
+    color: '#15803d',
+    fontWeight: '700',
+  },
+  customUnitContainer: {
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  customUnitHint: {
+    fontSize: 12,
+    color: '#15803d',
+    marginBottom: 6,
+    fontWeight: '500',
   },
   textArea: {
     minHeight: 64,
