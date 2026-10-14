@@ -8,17 +8,20 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '@/contexts/auth-context';
 
 const TAB_ICONS = {
   home: 'home-outline',
   products: 'basket-outline',
   shoppingList: 'cart-outline',
   budget: 'wallet-outline',
+  admin: 'shield-outline',
   account: 'person-circle-outline',
 } as const;
 
 export default function AppTabs() {
   const insets = useSafeAreaInsets();
+  const { isAdmin } = useAuth();
 
   return (
     <Tabs>
@@ -37,6 +40,11 @@ export default function AppTabs() {
           <TabTrigger name="budget" href="/presupuesto" asChild>
             <TabButton label="Presupuesto" icon={TAB_ICONS.budget} />
           </TabTrigger>
+          {isAdmin && (
+            <TabTrigger name="admin" href={'/admin' as any} asChild>
+              <TabButton label="Admin" icon={TAB_ICONS.admin} />
+            </TabTrigger>
+          )}
           <TabTrigger name="account" href="/cuenta" asChild>
             <TabButton label="Cuenta" icon={TAB_ICONS.account} />
           </TabTrigger>

@@ -17,9 +17,9 @@ import { Toast, ToastType } from '../components/toast';
 import { useAuth } from '../contexts/auth-context';
 
 const DEMO_USERS = [
-  { nombre: 'Randy Galarza', correo: 'randy@canasta.com', contrasena: 'demo123' },
-  { nombre: 'Loreley Gonzales', correo: 'loreley@canasta.com', contrasena: 'demo123' },
-  {nombre: 'Pedro Brugues', correo: 'pedro@canasta.com', contrasena: 'demo123'},
+  { nombre: 'Administrador', correo: 'admin@canasta.com', contrasena: 'admin123', rol: 'admin' },
+  { nombre: 'Don Pedro (Comercio)', correo: 'donpedro@canasta.com', contrasena: 'comercio123', rol: 'comercio' },
+  { nombre: 'Randy (Usuario)', correo: 'randy@canasta.com', contrasena: 'demo123', rol: 'usuario' },
 ];
 
 export default function LoginScreen() {
@@ -107,7 +107,7 @@ export default function LoginScreen() {
                   onPress={() => fillDemo(u)}
                 >
                   <Ionicons name="flash" size={13} color="#16a34a" />
-                  <Text style={styles.demoButtonText}>{u.nombre.split(' ')[0]}</Text>
+                  <Text style={styles.demoButtonText}>{u.nombre}</Text>
                 </TouchableOpacity>
               ))}
             </View>

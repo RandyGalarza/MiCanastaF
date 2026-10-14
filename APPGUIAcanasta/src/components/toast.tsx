@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import {
   Animated,
   StyleSheet,
@@ -30,8 +30,8 @@ const COLORS: Record<ToastType, { bg: string; icon: string; border: string }> = 
 };
 
 export function Toast({ visible, message, type = 'info', duration = 3000, onHide }: ToastProps) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(-20)).current;
+  const [opacity] = React.useState(() => new Animated.Value(0));
+  const [translateY] = React.useState(() => new Animated.Value(-20));
 
   useEffect(() => {
     if (visible) {
@@ -49,7 +49,7 @@ export function Toast({ visible, message, type = 'info', duration = 3000, onHide
 
       return () => clearTimeout(timer);
     }
-  }, [visible]);
+  }, [visible, duration, onHide, opacity, translateY]);
 
   if (!visible) return null;
 

@@ -8,8 +8,15 @@ CREATE TABLE IF NOT EXISTS usuarios (
     telefono TEXT,
     correo TEXT NOT NULL UNIQUE,
     contrasena TEXT NOT NULL,
+    rol TEXT NOT NULL DEFAULT 'usuario',
+    id_comercio INTEGER,
     fecha_creacion TEXT NOT NULL DEFAULT CURRENT_DATE,
-    usu_estado INTEGER NOT NULL DEFAULT 1
+    usu_estado INTEGER NOT NULL DEFAULT 1,
+
+    FOREIGN KEY (id_comercio)
+        REFERENCES comercios(id_comercio)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS presupuestos (

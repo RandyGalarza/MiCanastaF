@@ -50,6 +50,23 @@ export async function obtenerProductos(): Promise<Producto[]> {
   );
 }
 
+export async function obtenerProductosPorComercio(
+  id_comercio: number
+): Promise<Producto[]> {
+  const db = await getDatabase();
+
+  return await db.getAllAsync<Producto>(
+    `
+    SELECT *
+    FROM productos
+    WHERE id_comercio = ?
+      AND pro_estado = 1
+    ORDER BY nombre ASC
+    `,
+    [id_comercio]
+  );
+}
+
 export async function obtenerProducto(
   id_producto: number
 ): Promise<Producto | null> {

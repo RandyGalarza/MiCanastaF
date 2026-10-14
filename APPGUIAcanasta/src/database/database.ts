@@ -10,7 +10,7 @@ export interface DatabaseConnection {
 }
 
 const WEB_DB_KEY = 'canasta_familiar_db';
-const WEB_DB_VERSION = '3'; // Incrementar cuando cambie el schema o seed
+const WEB_DB_VERSION = '4'; // Incrementar cuando cambie el schema o seed
 
 // Adaptador web con persistencia en localStorage versionada
 class WebDatabaseAdapter implements DatabaseConnection {
@@ -24,35 +24,18 @@ class WebDatabaseAdapter implements DatabaseConnection {
   private loadFromStorage() {
     try {
       const version = localStorage.getItem(`${WEB_DB_KEY}_version`);
-      if (version === '2') {
-        const stored = localStorage.getItem(WEB_DB_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          this.tables = parsed.tables || {};
-          this.autoIncrements = parsed.autoIncrements || {};
-          this.migrateVersion2Data();
-          this.saveToStorage();
-        }
-        localStorage.setItem(`${WEB_DB_KEY}_version`, WEB_DB_VERSION);
-        console.log('DB Web: datos migrados al nuevo esquema.');
-        return;
-      }
-
-      // Si la versión no coincide, borrar datos y empezar fresco
-      if (version !== WEB_DB_VERSION) {
-        localStorage.removeItem(WEB_DB_KEY);
-        localStorage.setItem(`${WEB_DB_KEY}_version`, WEB_DB_VERSION);
-        this.tables = {};
-        this.autoIncrements = {};
-        console.log('DB Web: nueva versión detectada, datos reiniciados.');
-        return;
-      }
-
       const stored = localStorage.getItem(WEB_DB_KEY);
+
       if (stored) {
         const parsed = JSON.parse(stored);
         this.tables = parsed.tables || {};
         this.autoIncrements = parsed.autoIncrements || {};
+        this.migrateVersionData();
+        this.saveToStorage();
+      }
+
+      if (version !== WEB_DB_VERSION) {
+        localStorage.setItem(`${WEB_DB_KEY}_version`, WEB_DB_VERSION);
       }
     } catch (error) {
       console.error('No se pudieron cargar o migrar los datos de la base web:', error);
@@ -61,11 +44,13 @@ class WebDatabaseAdapter implements DatabaseConnection {
     }
   }
 
-  private migrateVersion2Data() {
+  private migrateVersionData() {
     const today = new Date().toISOString().split('T')[0];
     this.tables.usuarios?.forEach((usuario) => {
       usuario.fecha_creacion ??= usuario.fecha_registro ?? today;
       usuario.usu_estado ??= usuario.estado ?? 1;
+      usuario.rol ??= usuario.correo === 'admin@canasta.com' ? 'admin' : (usuario.id_comercio ? 'comercio' : 'usuario');
+      usuario.id_comercio ??= null;
     });
     this.tables.presupuestos?.forEach((presupuesto) => {
       presupuesto.monto ??= presupuesto.monto_total;
@@ -159,6 +144,7 @@ class WebDatabaseAdapter implements DatabaseConnection {
       newRecord['fecha_registro'] = today;
       newRecord['fecha_creacion'] = today;
       Object.assign(newRecord, {
+        rol: 'usuario',
         usu_estado: 1,
         pre_estado: 1,
         pro_estado: 1,
@@ -202,6 +188,15 @@ class WebDatabaseAdapter implements DatabaseConnection {
         } else if (whereClause.includes('id_usuario =')) {
           const idVal = paramList[paramList.length - 1];
           matchesWhere = record.id_usuario === idVal;
+        } else if (whereClause.includes('id_producto =')) {
+          const idVal = paramList[paramList.length - 1];
+          matchesWhere = record.id_producto === idVal;
+        } else if (whereClause.includes('id_comercio =')) {
+          const idVal = paramList[paramList.length - 1];
+          matchesWhere = record.id_comercio === idVal;
+        } else if (whereClause.includes('id_categoria =')) {
+          const idVal = paramList[paramList.length - 1];
+          matchesWhere = record.id_categoria === idVal;
         }
 
         if (matchesWhere) {
@@ -212,6 +207,29 @@ class WebDatabaseAdapter implements DatabaseConnection {
         }
       });
 
+      if (changes > 0) this.saveToStorage();
+      return { lastInsertRowId: 0, changes };
+    }
+
+    // DELETE
+    const deleteMatch = trimmed.match(/DELETE FROM (\w+)\s+WHERE\s+([\s\S]+)/i);
+    if (deleteMatch) {
+      const tableName = deleteMatch[1];
+      const whereClause = deleteMatch[2];
+      const beforeCount = (this.tables[tableName] || []).length;
+
+      if (whereClause.includes('id_categoria =')) {
+        const idVal = paramList[0];
+        this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_categoria !== idVal);
+      } else if (whereClause.includes('id_producto =')) {
+        const idVal = paramList[0];
+        this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_producto !== idVal);
+      } else if (whereClause.includes('id_comercio =')) {
+        const idVal = paramList[0];
+        this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_comercio !== idVal);
+      }
+
+      const changes = beforeCount - (this.tables[tableName] || []).length;
       if (changes > 0) this.saveToStorage();
       return { lastInsertRowId: 0, changes };
     }
@@ -228,21 +246,28 @@ class WebDatabaseAdapter implements DatabaseConnection {
     const trimmed = sql.trim();
     const paramList: any[] = Array.isArray(params) ? params : [params];
 
-    const selectMatch = trimmed.match(/SELECT\s+\*\s+FROM\s+(\w+)/i);
+    const selectMatch = trimmed.match(/SELECT\s+(?:\*|[\s\S]+?)\s+FROM\s+(\w+)/i);
     if (selectMatch) {
       const tableName = selectMatch[1];
-      const records = this.tables[tableName] || [];
+      let records = [...(this.tables[tableName] || [])];
 
       if (trimmed.includes('WHERE correo =')) {
         const correoParam = paramList[0];
-        return records.filter(
+        records = records.filter(
           (r) => r.correo === correoParam && (trimmed.includes('usu_estado = 1') ? r.usu_estado === 1 : true)
-        ) as T[];
-      }
-
-      if (trimmed.includes('WHERE id_usuario =')) {
+        );
+      } else if (trimmed.includes('WHERE id_usuario =')) {
         const idParam = paramList[0];
-        return records.filter((r) => r.id_usuario === idParam) as T[];
+        records = records.filter((r) => r.id_usuario === idParam);
+      } else if (trimmed.includes('WHERE id_comercio =')) {
+        const comParam = paramList[0];
+        records = records.filter((r) => r.id_comercio === comParam && (trimmed.includes('pro_estado = 1') ? r.pro_estado === 1 : true));
+      } else if (trimmed.includes('WHERE usu_estado = 1')) {
+        records = records.filter((r) => r.usu_estado === 1);
+      } else if (trimmed.includes('WHERE pro_estado = 1')) {
+        records = records.filter((r) => r.pro_estado === 1);
+      } else if (trimmed.includes('WHERE com_estado = 1')) {
+        records = records.filter((r) => r.com_estado === 1);
       }
 
       return records as T[];
@@ -301,6 +326,18 @@ async function migrateNativeDatabase(db: DatabaseConnection) {
     'lis_estado',
     `estado IN ('PENDIENTE', 'ACTIVO', '1')`
   );
+
+  const userColumns = await getColumns('usuarios');
+  if (!userColumns.has('rol')) {
+    await db.execAsync(
+      "ALTER TABLE usuarios ADD COLUMN rol TEXT NOT NULL DEFAULT 'usuario'"
+    );
+  }
+  if (!userColumns.has('id_comercio')) {
+    await db.execAsync(
+      'ALTER TABLE usuarios ADD COLUMN id_comercio INTEGER REFERENCES comercios(id_comercio)'
+    );
+  }
 
   const columns = await getColumns('productos');
   if (!columns.has('id_comercio')) {

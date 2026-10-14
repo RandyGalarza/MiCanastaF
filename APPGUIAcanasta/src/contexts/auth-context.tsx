@@ -4,11 +4,13 @@ import { Usuario } from '@/types/database';
 
 export type AuthUser = Pick<
   Usuario,
-  'id_usuario' | 'nombre' | 'apellido' | 'telefono' | 'correo' | 'fecha_creacion'
+  'id_usuario' | 'nombre' | 'apellido' | 'telefono' | 'correo' | 'rol' | 'id_comercio' | 'fecha_creacion'
 >;
 
 interface AuthContextValue {
   user: AuthUser | null;
+  isAdmin: boolean;
+  isComercio: boolean;
   signIn: (user: Usuario) => void;
   signOut: () => void;
 }
@@ -21,9 +23,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
+      isAdmin: user?.rol === 'admin',
+      isComercio: user?.rol === 'comercio',
       signIn: (usuario) => {
-        const { id_usuario, nombre, apellido, telefono, correo, fecha_creacion } = usuario;
-        setUser({ id_usuario, nombre, apellido, telefono, correo, fecha_creacion });
+        const { id_usuario, nombre, apellido, telefono, correo, rol, id_comercio, fecha_creacion } = usuario;
+        setUser({
+          id_usuario,
+          nombre,
+          apellido,
+          telefono,
+          correo,
+          rol: rol || 'usuario',
+          id_comercio: id_comercio ?? null,
+          fecha_creacion,
+        });
       },
       signOut: () => setUser(null),
     }),

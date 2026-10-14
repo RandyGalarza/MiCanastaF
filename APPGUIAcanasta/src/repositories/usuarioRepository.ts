@@ -1,12 +1,14 @@
 import { getDatabase } from '../database/database';
-import { Usuario } from '../types/database';
+import { Usuario, RolUsuario } from '../types/database';
 
 export async function crearUsuario(
   nombre: string,
   apellido: string,
   correo: string,
   contrasena: string,
-  telefono?: string
+  telefono?: string,
+  rol: RolUsuario = 'usuario',
+  id_comercio?: number | null
 ): Promise<number> {
   const db = await getDatabase();
 
@@ -18,20 +20,37 @@ export async function crearUsuario(
       apellido,
       correo,
       contrasena,
-      telefono
+      telefono,
+      rol,
+      id_comercio
     )
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
     [
       nombre,
       apellido,
       correo,
       contrasena,
-      telefono ?? null
+      telefono ?? null,
+      rol,
+      id_comercio ?? null
     ]
   );
 
   return result.lastInsertRowId;
+}
+
+export async function obtenerUsuarios(): Promise<Usuario[]> {
+  const db = await getDatabase();
+
+  return await db.getAllAsync<Usuario>(
+    `
+    SELECT *
+    FROM usuarios
+    WHERE usu_estado = 1
+    ORDER BY nombre ASC
+    `
+  );
 }
 
 export async function obtenerUsuario(

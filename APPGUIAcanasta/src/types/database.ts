@@ -1,3 +1,5 @@
+export type RolUsuario = 'admin' | 'comercio' | 'usuario';
+
 export interface Usuario {
   id_usuario: number;
   nombre: string;
@@ -5,6 +7,8 @@ export interface Usuario {
   telefono?: string;
   correo: string;
   contrasena: string;
+  rol: RolUsuario;
+  id_comercio?: number | null;
   fecha_creacion: string;
   usu_estado: number;
 }

@@ -45,12 +45,79 @@ export default function CuentaScreen() {
         <Text style={styles.title}>Mi cuenta</Text>
         <Text style={styles.subtitle}>Información de tu perfil</Text>
 
+        <View style={styles.badgeRow}>
+          <View
+            style={[
+              styles.roleBadge,
+              user.rol === 'admin'
+                ? styles.adminBadge
+                : user.rol === 'comercio'
+                ? styles.comercioBadge
+                : styles.userBadge,
+            ]}
+          >
+            <Ionicons
+              name={
+                user.rol === 'admin'
+                  ? 'shield-checkmark'
+                  : user.rol === 'comercio'
+                  ? 'storefront'
+                  : 'person'
+              }
+              size={14}
+              color={
+                user.rol === 'admin'
+                  ? '#b45309'
+                  : user.rol === 'comercio'
+                  ? '#0369a1'
+                  : '#16a34a'
+              }
+            />
+            <Text
+              style={[
+                styles.roleBadgeText,
+                user.rol === 'admin'
+                  ? styles.adminBadgeText
+                  : user.rol === 'comercio'
+                  ? styles.comercioBadgeText
+                  : styles.userBadgeText,
+              ]}
+            >
+              {user.rol === 'admin'
+                ? 'Administrador'
+                : user.rol === 'comercio'
+                ? 'Comercio Afiliado'
+                : 'Usuario Común'}
+            </Text>
+          </View>
+        </View>
+
         <View style={styles.infoList}>
           <InfoRow label="Nombre" value={`${user.nombre} ${user.apellido}`} icon="person-outline" />
+          <InfoRow
+            label="Tipo de cuenta"
+            value={
+              user.rol === 'admin'
+                ? 'Administrador General'
+                : user.rol === 'comercio'
+                ? 'Comercio (Gestor de sus productos)'
+                : 'Usuario Estándar'
+            }
+            icon="shield-outline"
+          />
           <InfoRow label="Correo electrónico" value={user.correo} icon="mail-outline" />
           <InfoRow label="Teléfono" value={user.telefono || 'No registrado'} icon="call-outline" />
           <InfoRow label="Fecha de registro" value={user.fecha_creacion} icon="calendar-outline" />
         </View>
+
+        {user.rol === 'admin' && (
+          <Link href={'/(tabs)/admin' as any} asChild>
+            <Pressable style={styles.adminAccessButton}>
+              <Ionicons name="settings-outline" size={18} color="#ffffff" />
+              <Text style={styles.adminAccessButtonText}>Ir al Panel de Administración</Text>
+            </Pressable>
+          </Link>
+        )}
 
         <Pressable
           accessibilityRole="button"
@@ -127,7 +194,47 @@ const styles = StyleSheet.create({
     color: '#16a34a',
     textAlign: 'center',
     marginTop: 4,
+    marginBottom: 12,
+  },
+  badgeRow: {
+    alignItems: 'center',
     marginBottom: 20,
+  },
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  adminBadge: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  comercioBadge: {
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  userBadge: {
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  roleBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  adminBadgeText: {
+    color: '#92400e',
+  },
+  comercioBadgeText: {
+    color: '#0369a1',
+  },
+  userBadgeText: {
+    color: '#166534',
   },
   infoList: {
     gap: 12,
@@ -184,6 +291,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  adminAccessButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 12,
+    backgroundColor: '#15803d',
+    paddingVertical: 13,
+    marginTop: 20,
+    boxShadow: '0px 3px 8px rgba(21, 128, 61, 0.25)',
+  },
+  adminAccessButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -194,7 +317,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#fef2f2',
     paddingVertical: 13,
-    marginTop: 24,
+    marginTop: 14,
   },
   logoutButtonText: {
     color: '#b91c1c',
