@@ -48,6 +48,43 @@ export async function obtenerPreciosProducto(
   );
 }
 
+export async function guardarOActualizarPrecio(
+  id_producto: number,
+  id_comercio: number,
+  precio: number
+): Promise<void> {
+  const db = await getDatabase();
+
+  const existing = await db.getFirstAsync<Precio>(
+    `
+    SELECT *
+    FROM precios
+    WHERE id_producto = ?
+      AND id_comercio = ?
+    `,
+    [id_producto, id_comercio]
+  );
+
+  if (existing) {
+    await db.runAsync(
+      `
+      UPDATE precios
+      SET precio = ?, disponible = 1
+      WHERE id_precio = ?
+      `,
+      [precio, existing.id_precio]
+    );
+  } else {
+    await db.runAsync(
+      `
+      INSERT INTO precios (id_producto, id_comercio, precio, disponible)
+      VALUES (?, ?, ?, 1)
+      `,
+      [id_producto, id_comercio, precio]
+    );
+  }
+}
+
 export async function actualizarPrecio(
   id_precio: number,
   precio: number

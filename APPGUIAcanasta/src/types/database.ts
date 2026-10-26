@@ -36,7 +36,9 @@ export interface Producto {
   descripcion?: string;
   unidad_medida: string;
   marca?: string;
+  imagen_url?: string;
   pro_estado: number;
+  precio?: number | null;
 }
 
 export interface Comercio {

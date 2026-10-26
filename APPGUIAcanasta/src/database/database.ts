@@ -10,7 +10,7 @@ export interface DatabaseConnection {
 }
 
 const WEB_DB_KEY = 'canasta_familiar_db';
-const WEB_DB_VERSION = '4'; // Incrementar cuando cambie el schema o seed
+const WEB_DB_VERSION = '6'; // Forzar reseteo/migración limpia con los 70 productos de Riohacha y precios
 
 // Adaptador web con persistencia en localStorage versionada
 class WebDatabaseAdapter implements DatabaseConnection {
@@ -26,15 +26,16 @@ class WebDatabaseAdapter implements DatabaseConnection {
       const version = localStorage.getItem(`${WEB_DB_KEY}_version`);
       const stored = localStorage.getItem(WEB_DB_KEY);
 
-      if (stored) {
+      if (stored && version === WEB_DB_VERSION) {
         const parsed = JSON.parse(stored);
         this.tables = parsed.tables || {};
         this.autoIncrements = parsed.autoIncrements || {};
         this.migrateVersionData();
         this.saveToStorage();
-      }
-
-      if (version !== WEB_DB_VERSION) {
+      } else {
+        // Si no existe o la versión es anterior a la 6, limpiar para poblar limpiamente
+        this.tables = {};
+        this.autoIncrements = {};
         localStorage.setItem(`${WEB_DB_KEY}_version`, WEB_DB_VERSION);
       }
     } catch (error) {
@@ -65,6 +66,9 @@ class WebDatabaseAdapter implements DatabaseConnection {
     });
     this.tables.listas_compra?.forEach((lista) => {
       lista.lis_estado ??= ['PENDIENTE', 'ACTIVO', '1'].includes(String(lista.estado)) ? 1 : 0;
+    });
+    this.tables.precios?.forEach((precio) => {
+      precio.disponible ??= 1;
     });
   }
 
@@ -101,10 +105,11 @@ class WebDatabaseAdapter implements DatabaseConnection {
     const paramList: any[] = Array.isArray(params) ? params : [params];
 
     // INSERT
-    const insertMatch = trimmed.match(/INSERT (?:OR IGNORE )?INTO (\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i);
+    const insertMatch = trimmed.match(/INSERT (?:OR IGNORE |OR REPLACE )?INTO (\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)/i);
     if (insertMatch) {
       const tableName = insertMatch[1];
       const isIgnore = /INSERT OR IGNORE/i.test(trimmed);
+      const isReplace = /INSERT OR REPLACE/i.test(trimmed);
       const cols = insertMatch[2].split(',').map((c) => c.trim());
 
       if (!this.tables[tableName]) {
@@ -121,9 +126,6 @@ class WebDatabaseAdapter implements DatabaseConnection {
           if (exists) return { lastInsertRowId: 0, changes: 0 };
         }
       }
-      const currentAutoId = this.autoIncrements[tableName] || 1;
-      this.autoIncrements[tableName] = currentAutoId + 1;
-      const newRecord: Record<string, any> = {};
 
       const idColumns: Record<string, string> = {
         usuarios: 'id_usuario',
@@ -139,6 +141,32 @@ class WebDatabaseAdapter implements DatabaseConnection {
         detalles_factura: 'id_detalle_factura',
       };
       const idKey = idColumns[tableName] ?? `id_${tableName.replace(/s$/, '')}`;
+
+      // Si viene el ID en las columnas (ej: sync pull o replace)
+      const pkColIdx = cols.indexOf(idKey);
+      let targetId: number;
+      if (pkColIdx >= 0 && paramList[pkColIdx] !== undefined && paramList[pkColIdx] !== null) {
+        targetId = Number(paramList[pkColIdx]);
+        if (targetId >= (this.autoIncrements[tableName] || 1)) {
+          this.autoIncrements[tableName] = targetId + 1;
+        }
+      } else {
+        targetId = this.autoIncrements[tableName] || 1;
+        this.autoIncrements[tableName] = targetId + 1;
+      }
+
+      const existingIndex = this.tables[tableName].findIndex((r) => r[idKey] === targetId);
+      if (existingIndex >= 0 && (isReplace || pkColIdx >= 0)) {
+        cols.forEach((col, idx) => {
+          this.tables[tableName][existingIndex][col] = paramList[idx] !== undefined ? paramList[idx] : null;
+        });
+        this.saveToStorage();
+        return { lastInsertRowId: targetId, changes: 1 };
+      }
+
+      const currentAutoId = targetId;
+      const newRecord: Record<string, any> = {};
+
       newRecord[idKey] = currentAutoId;
       const today = new Date().toISOString().split('T')[0];
       newRecord['fecha_registro'] = today;
@@ -174,12 +202,22 @@ class WebDatabaseAdapter implements DatabaseConnection {
       const records = this.tables[tableName] || [];
       let changes = 0;
 
-      const setFields = setClause.split(',').map((f) => f.trim().split('=')[0].trim());
+      const setAssignments = setClause.split(',').map((assignment) => assignment.trim());
+      const setFields = setAssignments.map((assignment) => assignment.split('=')[0].trim());
+      const setParameterCount = (setClause.match(/\?/g) || []).length;
 
       records.forEach((record) => {
         let matchesWhere = false;
+        const whereConditions = [...whereClause.matchAll(/(id_\w+)\s*=\s*\?/gi)];
+        if (whereConditions.length > 0) {
+          matchesWhere = whereConditions.every((condition, index) =>
+            record[condition[1]] === paramList[setParameterCount + index]
+          );
+        }
 
-        if (whereClause.includes('correo =') && whereClause.includes('usu_estado = 1')) {
+        if (matchesWhere) {
+          // Generic primary key matching above handles list/detail updates.
+        } else if (whereClause.includes('correo =') && whereClause.includes('usu_estado = 1')) {
           const correoVal = paramList[paramList.length - 1];
           matchesWhere = record.correo === correoVal && record.usu_estado !== 0;
         } else if (whereClause.includes('correo =')) {
@@ -200,8 +238,12 @@ class WebDatabaseAdapter implements DatabaseConnection {
         }
 
         if (matchesWhere) {
-          setFields.forEach((field, idx) => {
-            record[field] = paramList[idx];
+          setAssignments.forEach((assignment, idx) => {
+            const [field, rawValue] = assignment.split('=').map((part) => part.trim());
+            const parameterIndex = setAssignments.slice(0, idx + 1).filter((part) => part.includes('?')).length - 1;
+            record[field] = rawValue.includes('?')
+              ? paramList[parameterIndex]
+              : Number.isNaN(Number(rawValue)) ? rawValue.replace(/^['"]|['"]$/g, '') : Number(rawValue);
           });
           changes++;
         }
@@ -227,6 +269,12 @@ class WebDatabaseAdapter implements DatabaseConnection {
       } else if (whereClause.includes('id_comercio =')) {
         const idVal = paramList[0];
         this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_comercio !== idVal);
+      } else if (whereClause.includes('id_detalle =')) {
+        const idVal = paramList[0];
+        this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_detalle !== idVal);
+      } else if (whereClause.includes('id_lista =')) {
+        const idVal = paramList[0];
+        this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_lista !== idVal);
       }
 
       const changes = beforeCount - (this.tables[tableName] || []).length;
@@ -246,12 +294,59 @@ class WebDatabaseAdapter implements DatabaseConnection {
     const trimmed = sql.trim();
     const paramList: any[] = Array.isArray(params) ? params : [params];
 
+    if (trimmed.includes('FROM detalles_lista_compra d')) {
+      const listId = paramList[0];
+      const details = (this.tables.detalles_lista_compra || [])
+        .filter((detail) => detail.id_lista === listId)
+        .map((detail) => {
+          const product = (this.tables.productos || []).find((item) => item.id_producto === detail.id_producto);
+          const price = (this.tables.precios || []).find((item) => item.id_producto === detail.id_producto && (item.disponible ?? 1) === 1);
+          return { ...detail, nombre: product?.nombre, unidad_medida: product?.unidad_medida, precio: price?.precio ?? null };
+        });
+      return details as T[];
+    }
+
+    if (trimmed.includes('FROM productos p') && trimmed.includes('LEFT JOIN precios')) {
+      let products = [...(this.tables.productos || [])].filter((product) => product.pro_estado === 1);
+      products = products.map((product) => {
+          const price = (this.tables.precios || []).find((item) =>
+            Number(item.id_producto) === Number(product.id_producto) &&
+            Number(item.disponible ?? 1) === 1 && Number(item.precio) > 0
+          );
+        return { ...product, precio: price?.precio ?? null };
+      });
+      if (trimmed.includes('WHERE p.id_producto = ?')) products = products.filter((product) => product.id_producto === paramList[0]);
+      return products as T[];
+    }
+
     const selectMatch = trimmed.match(/SELECT\s+(?:\*|[\s\S]+?)\s+FROM\s+(\w+)/i);
     if (selectMatch) {
       const tableName = selectMatch[1];
       let records = [...(this.tables[tableName] || [])];
 
-      if (trimmed.includes('WHERE correo =')) {
+      if (trimmed.includes('WHERE nombre = ? AND id_comercio = ?')) {
+        records = records.filter(
+          (r) => r.nombre === paramList[0] && r.id_comercio === paramList[1]
+        );
+      } else if (trimmed.includes('WHERE id_lista = ? AND id_producto = ?')) {
+        records = records.filter(
+          (r) => r.id_lista === paramList[0] && r.id_producto === paramList[1]
+        );
+      } else if (trimmed.includes('WHERE id_lista = ?')) {
+        records = records.filter((r) => r.id_lista === paramList[0]);
+      } else if (trimmed.includes('WHERE id_producto = ? AND id_comercio = ?')) {
+        records = records.filter(
+          (r) => r.id_producto === paramList[0] && r.id_comercio === paramList[1]
+        );
+      } else if (trimmed.includes('WHERE id_producto = ? AND id_comercio = ?')) {
+        records = records.filter(
+          (r) => r.id_producto === paramList[0] && r.id_comercio === paramList[1]
+        );
+      } else if (trimmed.includes('WHERE descripcion = ?')) {
+        records = records.filter((r) => r.descripcion === paramList[0]);
+      } else if (trimmed.includes('WHERE nombre = ?')) {
+        records = records.filter((r) => r.nombre === paramList[0]);
+      } else if (trimmed.includes('WHERE correo =')) {
         const correoParam = paramList[0];
         records = records.filter(
           (r) => r.correo === correoParam && (trimmed.includes('usu_estado = 1') ? r.usu_estado === 1 : true)
@@ -259,6 +354,16 @@ class WebDatabaseAdapter implements DatabaseConnection {
       } else if (trimmed.includes('WHERE id_usuario =')) {
         const idParam = paramList[0];
         records = records.filter((r) => r.id_usuario === idParam);
+      } else if (trimmed.includes('WHERE id_producto = ? AND id_comercio = ?')) {
+        records = records.filter(
+          (r) => r.id_producto === paramList[0] && r.id_comercio === paramList[1]
+        );
+      } else if (trimmed.includes('WHERE id_producto =')) {
+        const idParam = paramList[0];
+        records = records.filter((r) => r.id_producto === idParam);
+      } else if (trimmed.includes('WHERE id_categoria =')) {
+        const idParam = paramList[0];
+        records = records.filter((r) => r.id_categoria === idParam);
       } else if (trimmed.includes('WHERE id_comercio =')) {
         const comParam = paramList[0];
         records = records.filter((r) => r.id_comercio === comParam && (trimmed.includes('pro_estado = 1') ? r.pro_estado === 1 : true));
@@ -268,6 +373,21 @@ class WebDatabaseAdapter implements DatabaseConnection {
         records = records.filter((r) => r.pro_estado === 1);
       } else if (trimmed.includes('WHERE com_estado = 1')) {
         records = records.filter((r) => r.com_estado === 1);
+      }
+
+      // Si la consulta solicita JOIN o datos de precios, adjuntar el precio del producto
+      if (tableName === 'productos' && (trimmed.includes('precio') || trimmed.includes('JOIN precios'))) {
+        const precios = this.tables['precios'] || [];
+        records = records.map((prod) => {
+          const precioObj = precios.find((pr) =>
+            Number(pr.id_producto) === Number(prod.id_producto) &&
+            Number(pr.disponible ?? 1) === 1 && Number(pr.precio) > 0
+          );
+          return {
+            ...prod,
+            precio: precioObj ? precioObj.precio : null,
+          };
+        });
       }
 
       return records as T[];

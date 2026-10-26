@@ -12,6 +12,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/auth-context';
 import { Producto, Comercio, Categoria } from '@/types/database';
@@ -21,9 +23,11 @@ import {
   actualizarProducto,
   eliminarProducto,
 } from '@/repositories/productoRepository';
+import { guardarOActualizarPrecio } from '@/repositories/precioRepository';
 import { obtenerComercios } from '@/repositories/comercioRepository';
 import { obtenerCategorias } from '@/repositories/categoriaRepository';
 import { Toast, ToastType } from '@/components/toast';
+import { getDemoDiscount } from '@/utils/demo-prices';
 
 const UNIDADES_COMUNES = [
   'Unidad',
@@ -39,6 +43,53 @@ const UNIDADES_COMUNES = [
   'Docena',
   'Otro',
 ] as const;
+
+/**
+ * Mapeo inteligente de iconos predeterminados de la canasta familiar
+ * cuando el producto no tiene una foto personalizada
+ */
+function getProductDefaultIcon(
+  idCategoria: number,
+  nombre: string
+): { name: keyof typeof Ionicons.glyphMap; color: string; bg: string } {
+  const n = nombre.toLowerCase();
+
+  if (n.includes('leche') || n.includes('queso') || n.includes('suero') || n.includes('mantequilla') || n.includes('yogurt')) {
+    return { name: 'water-outline', color: '#0284c7', bg: '#e0f2fe' };
+  }
+  if (n.includes('huevo')) {
+    return { name: 'ellipse-outline', color: '#d97706', bg: '#fef3c7' };
+  }
+  if (n.includes('carne') || n.includes('pollo') || n.includes('pechuga') || n.includes('salchicha')) {
+    return { name: 'restaurant-outline', color: '#b91c1c', bg: '#fee2e2' };
+  }
+  if (n.includes('pescado') || n.includes('sierra') || n.includes('lisa') || n.includes('atun') || n.includes('camaron')) {
+    return { name: 'fish-outline', color: '#0369a1', bg: '#e0f2fe' };
+  }
+  if (n.includes('platano') || n.includes('guineo') || n.includes('banano') || n.includes('limon') || n.includes('fruta')) {
+    return { name: 'nutrition-outline', color: '#15803d', bg: '#dcfce7' };
+  }
+  if (n.includes('yuca') || n.includes('papa') || n.includes('tomate') || n.includes('cebolla') || n.includes('aji') || n.includes('ajo')) {
+    return { name: 'leaf-outline', color: '#16a34a', bg: '#dcfce7' };
+  }
+  if (n.includes('pan') || n.includes('galleta') || n.includes('torta') || n.includes('arepa') || n.includes('harina')) {
+    return { name: 'pizza-outline', color: '#b45309', bg: '#fef3c7' };
+  }
+  if (n.includes('cafe') || n.includes('tinto') || n.includes('chocolate')) {
+    return { name: 'cafe-outline', color: '#78350f', bg: '#fef3c7' };
+  }
+  if (n.includes('gaseosa') || n.includes('agua') || n.includes('jugo') || n.includes('bebida')) {
+    return { name: 'pint-outline', color: '#2563eb', bg: '#dbeafe' };
+  }
+  if (n.includes('jabon') || n.includes('detergente') || n.includes('crema') || n.includes('papel') || n.includes('limpido') || n.includes('cloro')) {
+    return { name: 'sparkles-outline', color: '#7c3aed', bg: '#f3e8ff' };
+  }
+  if (idCategoria === 1 || n.includes('arroz') || n.includes('frijol') || n.includes('lenteja') || n.includes('arveja')) {
+    return { name: 'cube-outline', color: '#d97706', bg: '#fef3c7' };
+  }
+
+  return { name: 'basket-outline', color: '#16a34a', bg: '#f0fdf4' };
+}
 
 export default function ProductosScreen() {
   const { user, isAdmin, isComercio } = useAuth();
@@ -58,9 +109,11 @@ export default function ProductosScreen() {
   const [guardando, setGuardando] = useState(false);
   const [nombre, setNombre] = useState('');
   const [marca, setMarca] = useState('');
+  const [precioInput, setPrecioInput] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [unidadMedida, setUnidadMedida] = useState('Unidad');
   const [otraUnidad, setOtraUnidad] = useState('');
+  const [imagenUrl, setImagenUrl] = useState('');
   const [mostrarDropdownUnidad, setMostrarDropdownUnidad] = useState(false);
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<number | null>(null);
   const [comercioSeleccionado, setComercioSeleccionado] = useState<number | null>(null);
@@ -141,13 +194,42 @@ export default function ProductosScreen() {
     };
   }, []);
 
+  const seleccionarImagen = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permiso denegado',
+          'Se necesita acceso a la galería para seleccionar la foto del producto.'
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setImagenUrl(result.assets[0].uri);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo cargar la imagen', 'error');
+    }
+  };
+
   const abrirModalCrear = () => {
     setProductoEnEdicion(null);
     setNombre('');
     setMarca('');
+    setPrecioInput('');
     setDescripcion('');
     setUnidadMedida('Unidad');
     setOtraUnidad('');
+    setImagenUrl('');
     setMostrarDropdownUnidad(false);
     if (categorias.length > 0) {
       setCategoriaSeleccionada(categorias[0].id_categoria);
@@ -168,7 +250,9 @@ export default function ProductosScreen() {
     setProductoEnEdicion(prod);
     setNombre(prod.nombre);
     setMarca(prod.marca || '');
+    setPrecioInput(prod.precio ? String(prod.precio) : '');
     setDescripcion(prod.descripcion || '');
+    setImagenUrl(prod.imagen_url || '');
     setMostrarDropdownUnidad(false);
 
     const matchUnidad = UNIDADES_COMUNES.find(
@@ -206,11 +290,12 @@ export default function ProductosScreen() {
         ? otraUnidad.trim() || 'Otro'
         : unidadMedida;
 
-    // Para usuario comercio, forzar siempre su comercio asignado
     const comercioFinal = isComercio && miComercioId ? miComercioId : (comercioSeleccionado || 1);
 
     try {
       setGuardando(true);
+      let targetProdId = productoEnEdicion?.id_producto;
+
       if (productoEnEdicion) {
         if (!puedeGestionarProducto(productoEnEdicion)) {
           showToast('No tienes permiso para editar este producto', 'error');
@@ -223,19 +308,27 @@ export default function ProductosScreen() {
           nombre.trim(),
           unidadFinal,
           marca.trim() || undefined,
-          descripcion.trim() || undefined
+          descripcion.trim() || undefined,
+          imagenUrl.trim() || undefined
         );
         showToast('Producto actualizado exitosamente', 'success');
       } else {
-        await crearProducto(
+        targetProdId = await crearProducto(
           categoriaSeleccionada,
           comercioFinal,
           nombre.trim(),
           unidadFinal,
           marca.trim() || undefined,
-          descripcion.trim() || undefined
+          descripcion.trim() || undefined,
+          imagenUrl.trim() || undefined
         );
         showToast('Producto añadido exitosamente', 'success');
+      }
+
+      // Guardar precio si se especificó
+      const precioNum = parseFloat(precioInput.replace(/[^0-9.]/g, ''));
+      if (targetProdId && !isNaN(precioNum) && precioNum > 0) {
+        await guardarOActualizarPrecio(targetProdId, comercioFinal, precioNum);
       }
 
       setModalVisible(false);
@@ -281,7 +374,6 @@ export default function ProductosScreen() {
     }
   };
 
-  // Filtrado de productos por texto y por pestaña de "Mis Productos" (si es comercio)
   const productosFiltrados = productos.filter((p) => {
     if (isComercio && soloMisProductos) {
       if (p.id_comercio !== miComercioId) return false;
@@ -310,7 +402,7 @@ export default function ProductosScreen() {
               ? 'Administrador: Control total del catálogo'
               : isComercio
               ? `Comercio: ${miComercio ? miComercio.nombre : 'Tu tienda'}`
-              : 'Explora los mejores precios de la canasta'}
+              : 'Explora los mejores precios en Riohacha'}
           </Text>
         </View>
 
@@ -374,7 +466,7 @@ export default function ProductosScreen() {
         <Ionicons name="search" size={20} color="#64748b" style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Buscar por nombre o marca..."
+          placeholder="Buscar producto, marca..."
           placeholderTextColor="#94a3b8"
           value={busqueda}
           onChangeText={setBusqueda}
@@ -386,23 +478,12 @@ export default function ProductosScreen() {
         )}
       </View>
 
-      {/* Banner explicativo según rol */}
-      {!isAdmin && !isComercio && (
-        <View style={styles.userBanner}>
-          <Ionicons name="information-circle-outline" size={18} color="#15803d" />
-          <Text style={styles.userBannerText}>
-            {user
-              ? 'Has iniciado como Usuario Común. Puedes consultar productos y agregarlos a tu lista de compras.'
-              : 'Inicia sesión como Administrador o Comercio para gestionar productos.'}
-          </Text>
-        </View>
-      )}
-
+      {/* Banner para comercio */}
       {isComercio && (
         <View style={styles.comercioBanner}>
           <Ionicons name="storefront-outline" size={18} color="#0369a1" />
           <Text style={styles.comercioBannerText}>
-            Como comercio, puedes añadir nuevos productos a tu catálogo y editar o eliminar exclusivamente los productos asociados a tu establecimiento ({miComercio ? miComercio.nombre : 'tu comercio'}).
+            Gestionando los productos de {miComercio ? miComercio.nombre : 'tu comercio'}. Puedes añadir fotos reales y editar los precios.
           </Text>
         </View>
       )}
@@ -411,7 +492,7 @@ export default function ProductosScreen() {
       {cargando ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#16a34a" />
-          <Text style={styles.loadingText}>Cargando catálogo...</Text>
+          <Text style={styles.loadingText}>Cargando catálogo de Riohacha...</Text>
         </View>
       ) : productosFiltrados.length === 0 ? (
         <View style={styles.centerContainer}>
@@ -424,15 +505,6 @@ export default function ProductosScreen() {
               ? 'Aún no has registrado productos para tu comercio.'
               : 'Aún no se han agregado productos.'}
           </Text>
-          {soloMisProductos && puedeAgregar && (
-            <TouchableOpacity
-              style={[styles.addButton, { marginTop: 14 }]}
-              onPress={abrirModalCrear}
-            >
-              <Ionicons name="add-circle" size={18} color="#fff" />
-              <Text style={styles.addButtonText}>Añadir mi primer producto</Text>
-            </TouchableOpacity>
-          )}
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.listContent}>
@@ -441,6 +513,8 @@ export default function ProductosScreen() {
             const com = comercios.find((c) => c.id_comercio === item.id_comercio);
             const esMio = isComercio && item.id_comercio === miComercioId;
             const tengoPermiso = puedeGestionarProducto(item);
+            const iconInfo = getProductDefaultIcon(item.id_categoria, item.nombre);
+            const demoDiscount = getDemoDiscount(item.nombre, item.precio);
 
             return (
               <View
@@ -450,12 +524,22 @@ export default function ProductosScreen() {
                   esMio && styles.productCardPropio,
                 ]}
               >
-                <View style={[styles.productIconWrapper, esMio && styles.productIconWrapperPropio]}>
-                  <Ionicons
-                    name={esMio ? 'storefront' : 'basket'}
-                    size={24}
-                    color={esMio ? '#0284c7' : '#16a34a'}
-                  />
+                {/* Imagen del producto o Icono temático */}
+                <View style={[styles.productImageWrapper, { backgroundColor: iconInfo.bg }]}>
+                  {item.imagen_url ? (
+                    <Image
+                      source={{ uri: item.imagen_url }}
+                      style={styles.productImage}
+                      contentFit="cover"
+                      transition={200}
+                    />
+                  ) : (
+                    <Ionicons
+                      name={iconInfo.name}
+                      size={28}
+                      color={iconInfo.color}
+                    />
+                  )}
                 </View>
 
                 <View style={styles.productInfo}>
@@ -490,8 +574,26 @@ export default function ProductosScreen() {
                   </View>
 
                   {item.descripcion ? (
-                    <Text style={styles.productDesc}>{item.descripcion}</Text>
+                    <Text style={styles.productDesc} numberOfLines={2}>
+                      {item.descripcion}
+                    </Text>
                   ) : null}
+
+                  {/* Precio del producto */}
+                  <View style={styles.priceContainer}>
+                    <Text style={styles.priceLabel}>Precio:</Text>
+                    {demoDiscount ? (
+                      <View style={styles.discountPriceGroup}>
+                        <Text style={styles.priceValue}>${demoDiscount.salePrice.toLocaleString('es-CO')}</Text>
+                        <Text style={styles.originalPrice}>${demoDiscount.originalPrice.toLocaleString('es-CO')}</Text>
+                        <View style={styles.discountBadge}><Text style={styles.discountBadgeText}>-{demoDiscount.percentage}% DEMO</Text></View>
+                      </View>
+                    ) : item.precio ? (
+                      <Text style={styles.priceValue}>${Number(item.precio).toLocaleString('es-CO')}</Text>
+                    ) : (
+                      <Text style={styles.pricePending}>Por consultar</Text>
+                    )}
+                  </View>
                 </View>
 
                 {tengoPermiso && (
@@ -518,7 +620,7 @@ export default function ProductosScreen() {
         </ScrollView>
       )}
 
-      {/* Modal para añadir / editar producto */}
+      {/* Modal para añadir / editar producto con selector de imagen */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -537,10 +639,45 @@ export default function ProductosScreen() {
             </View>
 
             <ScrollView style={styles.modalScroll}>
+              {/* Selector / Vista Previa de Imagen del Producto */}
+              <Text style={styles.fieldLabel}>Foto o Imagen del Producto</Text>
+              <View style={styles.imagePickerRow}>
+                <TouchableOpacity
+                  style={styles.imagePreviewBox}
+                  onPress={seleccionarImagen}
+                  activeOpacity={0.8}
+                >
+                  {imagenUrl ? (
+                    <Image
+                      source={{ uri: imagenUrl }}
+                      style={styles.previewImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={styles.imagePlaceholder}>
+                      <Ionicons name="camera-outline" size={32} color="#16a34a" />
+                      <Text style={styles.imagePlaceholderText}>
+                        Tocar para insertar imagen
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {imagenUrl ? (
+                  <TouchableOpacity
+                    style={styles.removeImageBtn}
+                    onPress={() => setImagenUrl('')}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#dc2626" />
+                    <Text style={styles.removeImageText}>Quitar imagen</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
               <Text style={styles.fieldLabel}>Nombre del Producto *</Text>
               <TextInput
                 style={styles.modalInput}
-                placeholder="Ej. Arroz Blanco 1kg"
+                placeholder="Ej. Arroz Blanco 1kg, Queso Costeño..."
                 value={nombre}
                 onChangeText={setNombre}
               />
@@ -548,9 +685,18 @@ export default function ProductosScreen() {
               <Text style={styles.fieldLabel}>Marca (opcional)</Text>
               <TextInput
                 style={styles.modalInput}
-                placeholder="Ej. Diana, Roa, Alpina..."
+                placeholder="Ej. Diana, Roa, Colanta, Alpina..."
                 value={marca}
                 onChangeText={setMarca}
+              />
+
+              <Text style={styles.fieldLabel}>Precio en Pesos Colombianos ($ COP) *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Ej. 4500"
+                keyboardType="numeric"
+                value={precioInput}
+                onChangeText={setPrecioInput}
               />
 
               <Text style={styles.fieldLabel}>Unidad de Medida *</Text>
@@ -603,11 +749,10 @@ export default function ProductosScreen() {
                 </View>
               )}
 
-              {/* Campo para especificar cuando elige 'Otro' */}
               {unidadMedida === 'Otro' && (
                 <View style={styles.customUnitContainer}>
                   <Text style={styles.customUnitHint}>
-                    Escribe la medida personalizada (ej. Atado, Galón, Porción):
+                    Escribe la medida personalizada (ej. Atado, Ramillete, Mano):
                   </Text>
                   <TextInput
                     style={styles.modalInput}
@@ -643,7 +788,6 @@ export default function ProductosScreen() {
                 ))}
               </View>
 
-              {/* Selector de comercio: Solo editable por Administrador */}
               <Text style={styles.fieldLabel}>Comercio Asociado</Text>
               {isComercio ? (
                 <View style={styles.fixedComercioCard}>
@@ -653,7 +797,7 @@ export default function ProductosScreen() {
                       {miComercio ? miComercio.nombre : 'Tu Comercio'}
                     </Text>
                     <Text style={styles.fixedComercioHint}>
-                      Ligado automáticamente a tu cuenta de comercio.
+                      Ligado automáticamente a tu cuenta de comercio en Riohacha.
                     </Text>
                   </View>
                 </View>
@@ -880,10 +1024,10 @@ const styles = StyleSheet.create({
   },
   productCard: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    padding: 14,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#dcfce7',
     boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.04)',
@@ -892,17 +1036,18 @@ const styles = StyleSheet.create({
     borderColor: '#bae6fd',
     backgroundColor: '#f8fafc',
   },
-  productIconWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#f0fdf4',
+  productImageWrapper: {
+    width: 60,
+    height: 60,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
   },
-  productIconWrapperPropio: {
-    backgroundColor: '#e0f2fe',
+  productImage: {
+    width: '100%',
+    height: '100%',
   },
   productInfo: {
     flex: 1,
@@ -914,7 +1059,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   productName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#0f172a',
   },
@@ -975,9 +1120,37 @@ const styles = StyleSheet.create({
   productDesc: {
     fontSize: 12,
     color: '#64748b',
-    marginTop: 6,
+    marginTop: 4,
     lineHeight: 16,
   },
+  priceContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+    marginTop: 6,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  priceLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  priceValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#15803d',
+  },
+  pricePending: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: '#94a3b8',
+  },
+  discountPriceGroup: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
+  originalPrice: { color: '#94a3b8', fontSize: 11, textDecorationLine: 'line-through' },
+  discountBadge: { backgroundColor: '#fef3c7', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 },
+  discountBadgeText: { color: '#92400e', fontSize: 9, fontWeight: '800' },
   actionsColumn: {
     flexDirection: 'column',
     gap: 6,
@@ -1022,7 +1195,49 @@ const styles = StyleSheet.create({
     color: '#14532d',
   },
   modalScroll: {
-    maxHeight: 420,
+    maxHeight: 460,
+  },
+  imagePickerRow: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  imagePreviewBox: {
+    width: '100%',
+    height: 120,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#bbf7d0',
+    borderStyle: 'dashed',
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  imagePlaceholderText: {
+    fontSize: 13,
+    color: '#16a34a',
+    fontWeight: '600',
+  },
+  removeImageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    paddingVertical: 4,
+  },
+  removeImageText: {
+    fontSize: 12,
+    color: '#dc2626',
+    fontWeight: '600',
   },
   fieldLabel: {
     fontSize: 13,

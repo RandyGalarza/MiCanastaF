@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS productos (
     descripcion TEXT,
     unidad_medida TEXT NOT NULL,
     marca TEXT,
+    imagen_url TEXT,
     pro_estado INTEGER NOT NULL DEFAULT 1,
 
     FOREIGN KEY (id_categoria)

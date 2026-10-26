@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import {
   Animated,
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -36,14 +37,14 @@ export function Toast({ visible, message, type = 'info', duration = 3000, onHide
   useEffect(() => {
     if (visible) {
       Animated.parallel([
-        Animated.timing(opacity, { toValue: 1, duration: 280, useNativeDriver: true }),
-        Animated.timing(translateY, { toValue: 0, duration: 280, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(translateY, { toValue: 0, duration: 280, useNativeDriver: Platform.OS !== 'web' }),
       ]).start();
 
       const timer = setTimeout(() => {
         Animated.parallel([
-          Animated.timing(opacity, { toValue: 0, duration: 250, useNativeDriver: true }),
-          Animated.timing(translateY, { toValue: -20, duration: 250, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0, duration: 250, useNativeDriver: Platform.OS !== 'web' }),
+          Animated.timing(translateY, { toValue: -20, duration: 250, useNativeDriver: Platform.OS !== 'web' }),
         ]).start(() => onHide?.());
       }, duration);
 

@@ -110,6 +110,15 @@ export default function CuentaScreen() {
           <InfoRow label="Fecha de registro" value={user.fecha_creacion} icon="calendar-outline" />
         </View>
 
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.navigate('/(tabs)/presupuesto' as any)}
+          style={({ pressed }) => [styles.budgetButton, pressed && styles.pressed]}>
+          <Ionicons name="wallet-outline" size={19} color="#15803d" />
+          <Text style={styles.budgetButtonText}>Mi presupuesto</Text>
+          <Ionicons name="chevron-forward" size={18} color="#64748b" />
+        </Pressable>
+
         {user.rol === 'admin' && (
           <Link href={'/(tabs)/admin' as any} asChild>
             <Pressable style={styles.adminAccessButton}>
@@ -302,6 +311,18 @@ const styles = StyleSheet.create({
     marginTop: 20,
     boxShadow: '0px 3px 8px rgba(21, 128, 61, 0.25)',
   },
+  budgetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 12,
+    backgroundColor: '#f0fdf4',
+    padding: 14,
+    marginTop: 18,
+  },
+  budgetButtonText: { flex: 1, color: '#166534', fontSize: 15, fontWeight: '700' },
   adminAccessButtonText: {
     color: '#ffffff',
     fontSize: 15,

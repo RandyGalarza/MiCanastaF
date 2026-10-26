@@ -7,7 +7,8 @@ export async function crearProducto(
   nombre: string,
   unidad_medida: string,
   marca?: string,
-  descripcion?: string
+  descripcion?: string,
+  imagen_url?: string
 ): Promise<number> {
   const db = await getDatabase();
 
@@ -20,9 +21,10 @@ export async function crearProducto(
       nombre,
       unidad_medida,
       marca,
-      descripcion
+      descripcion,
+      imagen_url
     )
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
     [
       id_categoria,
@@ -30,7 +32,8 @@ export async function crearProducto(
       nombre,
       unidad_medida,
       marca ?? null,
-      descripcion ?? null
+      descripcion ?? null,
+      imagen_url ?? null
     ]
   );
 
@@ -42,10 +45,11 @@ export async function obtenerProductos(): Promise<Producto[]> {
 
   return await db.getAllAsync<Producto>(
     `
-    SELECT *
-    FROM productos
-    WHERE pro_estado = 1
-    ORDER BY nombre ASC
+    SELECT p.*, pr.precio
+    FROM productos p
+    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1
+    WHERE p.pro_estado = 1
+    ORDER BY p.nombre ASC
     `
   );
 }
@@ -57,11 +61,12 @@ export async function obtenerProductosPorComercio(
 
   return await db.getAllAsync<Producto>(
     `
-    SELECT *
-    FROM productos
-    WHERE id_comercio = ?
-      AND pro_estado = 1
-    ORDER BY nombre ASC
+    SELECT p.*, pr.precio
+    FROM productos p
+    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1
+    WHERE p.id_comercio = ?
+      AND p.pro_estado = 1
+    ORDER BY p.nombre ASC
     `,
     [id_comercio]
   );
@@ -74,9 +79,10 @@ export async function obtenerProducto(
 
   const producto = await db.getFirstAsync<Producto>(
     `
-    SELECT *
-    FROM productos
-    WHERE id_producto = ?
+    SELECT p.*, pr.precio
+    FROM productos p
+    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1
+    WHERE p.id_producto = ?
     `,
     [id_producto]
   );
@@ -91,7 +97,8 @@ export async function actualizarProducto(
   nombre: string,
   unidad_medida: string,
   marca?: string,
-  descripcion?: string
+  descripcion?: string,
+  imagen_url?: string
 ): Promise<void> {
   const db = await getDatabase();
 
@@ -104,7 +111,8 @@ export async function actualizarProducto(
       nombre = ?,
       unidad_medida = ?,
       marca = ?,
-      descripcion = ?
+      descripcion = ?,
+      imagen_url = ?
     WHERE id_producto = ?
     `,
     [
@@ -114,6 +122,7 @@ export async function actualizarProducto(
       unidad_medida,
       marca ?? null,
       descripcion ?? null,
+      imagen_url ?? null,
       id_producto
     ]
   );

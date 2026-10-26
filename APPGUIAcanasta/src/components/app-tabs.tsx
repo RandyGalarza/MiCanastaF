@@ -14,6 +14,7 @@ const TAB_ICONS = {
   home: 'home-outline',
   products: 'basket-outline',
   shoppingList: 'cart-outline',
+  chat: 'chatbubbles-outline',
   budget: 'wallet-outline',
   admin: 'shield-outline',
   account: 'person-circle-outline',
@@ -37,8 +38,11 @@ export default function AppTabs() {
           <TabTrigger name="shopping-list" href="/lista-compra" asChild>
             <TabButton label="Lista" icon={TAB_ICONS.shoppingList} />
           </TabTrigger>
+          <TabTrigger name="chat" href="/chat" asChild>
+            <TabButton label="Chat IA" icon={TAB_ICONS.chat} />
+          </TabTrigger>
           <TabTrigger name="budget" href="/presupuesto" asChild>
-            <TabButton label="Presupuesto" icon={TAB_ICONS.budget} />
+            <Pressable style={styles.hiddenTabTrigger} />
           </TabTrigger>
           {isAdmin && (
             <TabTrigger name="admin" href={'/admin' as any} asChild>
@@ -81,6 +85,9 @@ function TabButton({ label, icon, isFocused, ...props }: TabButtonProps) {
 const styles = StyleSheet.create({
   slot: {
     flex: 1,
+  },
+  hiddenTabTrigger: {
+    display: 'none',
   },
   tabList: {
     flexDirection: 'row',
