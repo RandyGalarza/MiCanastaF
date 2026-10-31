@@ -3,7 +3,16 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
-import { obtenerCompras, obtenerVentasComercio } from '@/repositories/compraRepository';
+import {
+  obtenerCompras,
+  obtenerMovimientosSaldo,
+  obtenerPagosPendientes,
+  obtenerSaldoUsuario,
+  obtenerVentasComercio,
+  recargarSaldoDemostracion,
+  simularPagoReferencia,
+} from '@/repositories/compraRepository';
+import type { MovimientoSaldo, PagoPendiente } from '@/repositories/compraRepository';
 import { actualizarPresupuesto, crearPresupuesto, obtenerPresupuestos } from '@/repositories/presupuestoRepository';
 import { Compra, Presupuesto, VentaComercio } from '@/types/database';
 
@@ -59,12 +68,23 @@ export default function PresupuestoScreen() {
   const [amountText, setAmountText] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [walletMovements, setWalletMovements] = useState<MovimientoSaldo[]>([]);
+  const [pendingPayments, setPendingPayments] = useState<PagoPendiente[]>([]);
+  const [topUpVisible, setTopUpVisible] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState('');
+  const [topUpError, setTopUpError] = useState('');
+  const [walletActionError, setWalletActionError] = useState('');
+  const [walletSaving, setWalletSaving] = useState(false);
 
   const cargar = useCallback(async () => {
     if (!user) {
       setPresupuestos([]);
       setPurchases([]);
       setSales([]);
+      setWalletBalance(0);
+      setWalletMovements([]);
+      setPendingPayments([]);
       setLoading(false);
       return;
     }
@@ -75,14 +95,23 @@ export default function PresupuestoScreen() {
         setPresupuestos([]);
         setPurchases([]);
         setSales(user.id_comercio ? await obtenerVentasComercio(user.id_comercio) : []);
+        setWalletBalance(0);
+        setWalletMovements([]);
+        setPendingPayments([]);
         return;
       }
-      const [result, userPurchases] = await Promise.all([
+      const [result, userPurchases, balance, movements, openPayments] = await Promise.all([
         obtenerPresupuestos(user.id_usuario),
         obtenerCompras(user.id_usuario),
+        obtenerSaldoUsuario(user.id_usuario),
+        obtenerMovimientosSaldo(user.id_usuario),
+        obtenerPagosPendientes(user.id_usuario),
       ]);
       setPresupuestos(result);
       setPurchases(userPurchases);
+      setWalletBalance(balance);
+      setWalletMovements(movements);
+      setPendingPayments(openPayments);
       setSelectedBudgetId((current) =>
         result.some((item) => item.id_presupuesto === current)
           ? current
@@ -209,6 +238,45 @@ export default function PresupuestoScreen() {
       setLoadError(true);
     }
   };
+
+  const recargarSaldo = async () => {
+    if (!user || walletSaving) return;
+    const amount = Number(topUpAmount.replace(/\./g, '').replace(',', '.'));
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      setTopUpError('Ingresa un monto entero mayor que cero.');
+      return;
+    }
+    setWalletSaving(true);
+    setTopUpError('');
+    setWalletActionError('');
+    try {
+      await recargarSaldoDemostracion(user.id_usuario, amount);
+      setTopUpVisible(false);
+      setTopUpAmount('');
+      await cargar();
+    } catch (error) {
+      console.error('No se pudo recargar el saldo de prueba:', error);
+      setTopUpError(error instanceof Error ? error.message : 'No se pudo recargar el saldo.');
+    } finally {
+      setWalletSaving(false);
+    }
+  };
+
+  const confirmarPagoPendiente = async (payment: PagoPendiente) => {
+    if (!user || walletSaving) return;
+    setWalletSaving(true);
+    setWalletActionError('');
+    try {
+      await simularPagoReferencia(payment.id_pago, user.id_usuario);
+      await cargar();
+    } catch (error) {
+      console.error('No se pudo confirmar el pago de prueba:', error);
+      setWalletActionError(error instanceof Error ? error.message : 'No se pudo confirmar el pago.');
+    } finally {
+      setWalletSaving(false);
+    }
+  };
+
   const currentMonthSales = useMemo(() => {
     const now = new Date();
     return sales.filter((sale) => {
@@ -358,6 +426,19 @@ export default function PresupuestoScreen() {
         )
       ) : presupuestoActual ? (
         <>
+          <WalletSection
+            balance={walletBalance}
+            movements={walletMovements}
+            pendingPayments={pendingPayments}
+            actionError={walletActionError}
+            saving={walletSaving}
+            onTopUp={() => {
+              setTopUpError('');
+              setTopUpAmount('');
+              setTopUpVisible(true);
+            }}
+            onSimulatePayment={(payment) => void confirmarPagoPendiente(payment)}
+          />
           <View style={styles.balanceCard}>
             <View style={styles.balanceTop}>
               <View style={styles.balanceLabelRow}><Ionicons name="wallet-outline" size={16} color="#dcfce7" /><Text style={styles.balanceLabel}>DISPONIBLE</Text></View>
@@ -480,17 +561,32 @@ export default function PresupuestoScreen() {
           )}
         </>
       ) : (
-        <View style={styles.emptyCard}>
-          <View style={styles.emptyIcon}><Ionicons name="pie-chart-outline" size={28} color="#16a34a" /></View>
-          <Text style={styles.cardTitle}>Aún no tienes un presupuesto activo</Text>
-          <Text style={styles.bodyText}>Cuando configures un presupuesto, aquí podrás consultar el monto asignado y tu saldo disponible.</Text>
-          <View style={styles.suggestion}><Ionicons name="bulb-outline" size={18} color="#b45309" /><Text style={styles.suggestionText}>Define un monto para organizar mejor tus compras del mercado.</Text></View>
-          <Pressable onPress={startCreate} style={styles.createBudgetCta} accessibilityRole="button">
-            <Ionicons name="add" size={18} color="#ffffff" />
-            <Text style={styles.createBudgetCtaText}>Crear mi presupuesto</Text>
-          </Pressable>
-          <Link href="/productos" style={styles.budgetCatalogLink}>Explorar productos del mercado</Link>
-        </View>
+        <>
+          <WalletSection
+            balance={walletBalance}
+            movements={walletMovements}
+            pendingPayments={pendingPayments}
+            actionError={walletActionError}
+            saving={walletSaving}
+            onTopUp={() => {
+              setTopUpError('');
+              setTopUpAmount('');
+              setTopUpVisible(true);
+            }}
+            onSimulatePayment={(payment) => void confirmarPagoPendiente(payment)}
+          />
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyIcon}><Ionicons name="pie-chart-outline" size={28} color="#16a34a" /></View>
+            <Text style={styles.cardTitle}>Aún no tienes un presupuesto activo</Text>
+            <Text style={styles.bodyText}>Cuando configures un presupuesto, aquí podrás consultar el monto asignado y tu saldo disponible.</Text>
+            <View style={styles.suggestion}><Ionicons name="bulb-outline" size={18} color="#b45309" /><Text style={styles.suggestionText}>Define un monto para organizar mejor tus compras del mercado.</Text></View>
+            <Pressable onPress={startCreate} style={styles.createBudgetCta} accessibilityRole="button">
+              <Ionicons name="add" size={18} color="#ffffff" />
+              <Text style={styles.createBudgetCtaText}>Crear mi presupuesto</Text>
+            </Pressable>
+            <Link href="/productos" style={styles.budgetCatalogLink}>Explorar productos del mercado</Link>
+          </View>
+        </>
       )}
 
       <View style={styles.tipCard}>
@@ -514,7 +610,175 @@ export default function PresupuestoScreen() {
       onChange={(field, value) => setDraft((current) => ({ ...current, [field]: field === 'monto' ? Number(value) : value }))}
       onAmountChange={setAmountText}
     />
+    <TopUpModal
+      visible={topUpVisible}
+      amount={topUpAmount}
+      error={topUpError}
+      saving={walletSaving}
+      onClose={() => setTopUpVisible(false)}
+      onAmountChange={setTopUpAmount}
+      onSave={() => void recargarSaldo()}
+    />
     </>
+  );
+}
+
+function WalletSection({
+  balance,
+  movements,
+  pendingPayments,
+  actionError,
+  saving,
+  onTopUp,
+  onSimulatePayment,
+}: {
+  balance: number;
+  movements: MovimientoSaldo[];
+  pendingPayments: PagoPendiente[];
+  actionError: string;
+  saving: boolean;
+  onTopUp: () => void;
+  onSimulatePayment: (payment: PagoPendiente) => void;
+}) {
+  return (
+    <View style={styles.walletSection}>
+      <View style={styles.walletCard}>
+        <View style={styles.walletCardTop}>
+          <View style={styles.walletCardIcon}><Ionicons name="wallet-outline" size={21} color="#166534" /></View>
+          <View style={styles.walletCardHeading}>
+            <Text style={styles.walletCardTitle}>Saldo de la app</Text>
+            <Text style={styles.walletCardCaption}>Solo en este dispositivo</Text>
+          </View>
+          <Pressable onPress={onTopUp} style={styles.walletTopUpButton} accessibilityRole="button">
+            <Ionicons name="add" size={16} color="#ffffff" />
+            <Text style={styles.walletTopUpText}>Recargar</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.walletBalance}>{currency(balance)}</Text>
+        <View style={styles.walletDemoNote}>
+          <Ionicons name="information-circle-outline" size={15} color="#854d0e" />
+          <Text style={styles.walletDemoText}>Saldo local de prueba; no representa dinero real.</Text>
+        </View>
+      </View>
+
+      {actionError ? (
+        <View style={styles.walletActionError}>
+          <Ionicons name="alert-circle-outline" size={16} color="#b91c1c" />
+          <Text style={styles.walletActionErrorText}>{actionError}</Text>
+        </View>
+      ) : null}
+
+      {pendingPayments.length > 0 && (
+        <View style={styles.walletSubcard}>
+          <Text style={styles.walletSubcardTitle}>Pagos presenciales de prueba pendientes</Text>
+          {pendingPayments.map((payment) => (
+            <View key={payment.id_pago} style={styles.walletPendingRow}>
+              <View style={styles.walletPendingCopy}>
+                <Text style={styles.walletMovementTitle}>{payment.nombre_lista} · {currency(payment.total)}</Text>
+                <Text style={styles.walletMovementMeta}>{payment.referencia} · no válida para pago real</Text>
+              </View>
+              <Pressable
+                onPress={() => onSimulatePayment(payment)}
+                disabled={saving}
+                style={[styles.walletSimulateButton, saving && styles.disabledButton]}
+                accessibilityRole="button"
+                accessibilityLabel={`Simular pago recibido para ${payment.referencia}`}
+              >
+                {saving ? <ActivityIndicator size="small" color="#166534" /> : <Text style={styles.walletSimulateText}>Simular pago</Text>}
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View style={styles.walletSubcard}>
+        <Text style={styles.walletSubcardTitle}>Movimientos recientes</Text>
+        {movements.length === 0 ? (
+          <Text style={styles.walletEmptyText}>Aquí aparecerán tus recargas y pagos de prueba.</Text>
+        ) : movements.slice(0, 4).map((movement) => (
+          <View key={movement.id_movimiento} style={styles.walletMovementRow}>
+            <View style={[styles.walletMovementIcon, movement.monto < 0 && styles.walletDebitIcon]}>
+              <Ionicons name={movement.monto < 0 ? 'cart-outline' : 'add'} size={17} color={movement.monto < 0 ? '#b45309' : '#168344'} />
+            </View>
+            <View style={styles.walletMovementCopy}>
+              <Text numberOfLines={1} style={styles.walletMovementTitle}>{movement.descripcion}</Text>
+              <Text style={styles.walletMovementMeta}>{formatDate(dateOfPurchase(movement.fecha))}</Text>
+            </View>
+            <Text style={[styles.walletMovementAmount, movement.monto < 0 && styles.walletDebitAmount]}>
+              {movement.monto < 0 ? '−' : '+'}{currency(Math.abs(Number(movement.monto)))}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function TopUpModal({
+  visible,
+  amount,
+  error,
+  saving,
+  onClose,
+  onAmountChange,
+  onSave,
+}: {
+  visible: boolean;
+  amount: string;
+  error: string;
+  saving: boolean;
+  onClose: () => void;
+  onAmountChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.topUpModal}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalTitleCopy}>
+              <Text style={styles.modalEyebrow}>BILLETERA DE PRUEBA</Text>
+              <Text style={styles.modalTitle}>Recargar saldo</Text>
+            </View>
+            <Pressable onPress={onClose} style={styles.modalClose} accessibilityRole="button" accessibilityLabel="Cerrar recarga">
+              <Ionicons name="close" size={20} color="#526257" />
+            </Pressable>
+          </View>
+          <Text style={styles.topUpExplanation}>Añade saldo ficticio para probar el pago dentro de la app. No se realizará ningún cobro.</Text>
+          <Text style={styles.fieldLabel}>Monto en pesos colombianos</Text>
+          <View style={styles.amountInputWrap}>
+            <Text style={styles.currencyPrefix}>$</Text>
+            <TextInput
+              value={amount}
+              onChangeText={onAmountChange}
+              placeholder="Ej. 50000"
+              placeholderTextColor="#97a39a"
+              style={styles.amountInput}
+              keyboardType="number-pad"
+              accessibilityLabel="Monto de la recarga de prueba"
+            />
+            <Text style={styles.currencySuffix}>COP</Text>
+          </View>
+          <View style={styles.topUpPresets}>
+            {[20000, 50000, 100000].map((value) => (
+              <Pressable key={value} onPress={() => onAmountChange(String(value))} style={styles.topUpPreset} accessibilityRole="button">
+                <Text style={styles.topUpPresetText}>{currency(value)}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {error ? <View style={styles.formError}><Ionicons name="alert-circle-outline" size={17} color="#b42318" /><Text style={styles.formErrorText}>{error}</Text></View> : null}
+          <View style={styles.modalActions}>
+            <Pressable onPress={onClose} disabled={saving} style={styles.cancelButton} accessibilityRole="button">
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
+            </Pressable>
+            <Pressable onPress={onSave} disabled={saving} style={[styles.saveBudgetButton, saving && styles.disabledButton]} accessibilityRole="button">
+              {saving ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="add-circle-outline" size={18} color="#ffffff" />}
+              <Text style={styles.saveBudgetText}>{saving ? 'Recargando…' : 'Añadir saldo de prueba'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -699,6 +963,35 @@ const styles = StyleSheet.create({
   newBudgetButtonText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
   title: { color: '#14532d', fontSize: 23, fontWeight: '800' },
   subtitle: { color: '#64748b', fontSize: 12, marginTop: 3 },
+  walletSection: { gap: 10 },
+  walletCard: { padding: 18, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcebdc', boxShadow: '0px 4px 12px rgba(31, 56, 38, 0.05)' },
+  walletCardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  walletCardIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#dcfce7' },
+  walletCardHeading: { flex: 1, gap: 3 },
+  walletCardTitle: { color: '#14532d', fontSize: 13, fontWeight: '800' },
+  walletCardCaption: { color: '#718076', fontSize: 10 },
+  walletTopUpButton: { minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 10, borderRadius: 11, backgroundColor: '#168344' },
+  walletTopUpText: { color: '#ffffff', fontSize: 10, fontWeight: '800' },
+  walletBalance: { color: '#14532d', fontSize: 29, fontWeight: '800', marginTop: 13 },
+  walletDemoNote: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7 },
+  walletDemoText: { color: '#854d0e', fontSize: 10 },
+  walletSubcard: { gap: 9, padding: 14, borderRadius: 17, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },
+  walletSubcardTitle: { color: '#14532d', fontSize: 12, fontWeight: '800' },
+  walletMovementRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9, paddingTop: 7, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  walletPendingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 9, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  walletMovementIcon: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: '#dcfce7' },
+  walletDebitIcon: { backgroundColor: '#fef3c7' },
+  walletMovementCopy: { flex: 1, gap: 3 },
+  walletPendingCopy: { flex: 1, gap: 3 },
+  walletMovementTitle: { color: '#334155', fontSize: 10, fontWeight: '700' },
+  walletMovementMeta: { color: '#94a3b8', fontSize: 9 },
+  walletMovementAmount: { color: '#168344', fontSize: 10, fontWeight: '800' },
+  walletDebitAmount: { color: '#b45309' },
+  walletEmptyText: { color: '#64748b', fontSize: 10, paddingVertical: 5 },
+  walletSimulateButton: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 9, borderRadius: 10, backgroundColor: '#dcfce7' },
+  walletSimulateText: { color: '#166534', fontSize: 9, fontWeight: '800' },
+  walletActionError: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, padding: 10, borderRadius: 12, backgroundColor: '#fef2f2' },
+  walletActionErrorText: { flex: 1, color: '#991b1b', fontSize: 11, lineHeight: 16 },
   balanceCard: { backgroundColor: '#15803d', borderRadius: 22, padding: 20, boxShadow: '0px 5px 14px rgba(21, 128, 61, 0.18)' },
   balanceTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   balanceLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
@@ -811,6 +1104,11 @@ const styles = StyleSheet.create({
   budgetActionButton: { width: 34, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#f3f6f2' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(17, 27, 20, 0.45)' },
   modalCard: { width: '100%', maxWidth: 560, maxHeight: '92%', alignSelf: 'center', padding: 20, paddingBottom: 22, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: '#f9faf8' },
+  topUpModal: { width: '100%', maxWidth: 560, alignSelf: 'center', gap: 10, padding: 20, paddingBottom: 22, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: '#f9faf8' },
+  topUpExplanation: { color: '#64748b', fontSize: 11, lineHeight: 16, marginTop: -7 },
+  topUpPresets: { flexDirection: 'row', gap: 7 },
+  topUpPreset: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 11, backgroundColor: '#eaf5e9' },
+  topUpPresetText: { color: '#168344', fontSize: 10, fontWeight: '800' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 17 },
   modalTitleCopy: { flex: 1, gap: 4 },
   modalEyebrow: { color: '#168344', fontSize: 9, fontWeight: '800', letterSpacing: 1 },

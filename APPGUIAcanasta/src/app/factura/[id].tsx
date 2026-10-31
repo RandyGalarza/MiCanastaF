@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { obtenerCompra } from '@/repositories/compraRepository';
 import { Compra, DetalleCompra } from '@/types/database';
 import { generarPdfFactura } from '@/utils/invoice-pdf';
+import { ProductImage } from '@/components/product-image';
 
 const currency = (amount: number) => `$${Number(amount || 0).toLocaleString('es-CO')}`;
 
@@ -122,7 +123,11 @@ function InvoiceItem({ item }: { item: DetalleCompra }) {
   const discount = item.descuento_unitario * item.cantidad;
   return (
     <View style={styles.itemRow}>
-      <View style={styles.productIcon}><Ionicons name="basket-outline" size={18} color="#15803d" /></View>
+      <ProductImage
+        productName={item.nombre_producto}
+        style={styles.productIcon}
+        fallback={<Ionicons name="basket-outline" size={18} color="#15803d" />}
+      />
       <View style={styles.itemCopy}>
         <Text style={styles.productName}>{item.nombre_producto}</Text>
         <Text style={styles.itemMeta}>{item.nombre_comercio} · {item.unidad_medida}</Text>

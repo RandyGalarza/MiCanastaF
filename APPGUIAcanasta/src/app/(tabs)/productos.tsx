@@ -28,6 +28,7 @@ import { guardarOActualizarPrecio } from '@/repositories/precioRepository';
 import { obtenerComercios } from '@/repositories/comercioRepository';
 import { obtenerCategorias } from '@/repositories/categoriaRepository';
 import { Toast, ToastType } from '@/components/toast';
+import { ProductImage } from '@/components/product-image';
 import { getDemoDiscount } from '@/utils/demo-prices';
 
 const UNIDADES_COMUNES = [
@@ -959,20 +960,18 @@ export default function ProductosScreen() {
               >
                 {/* Imagen del producto o Icono temático */}
                 <View style={[styles.productImageWrapper, { backgroundColor: iconInfo.bg }]}>
-                  {item.imagen_url ? (
-                    <Image
-                      source={{ uri: item.imagen_url }}
-                      style={styles.productImage}
-                      contentFit="cover"
-                      transition={200}
-                    />
-                  ) : (
+                  <ProductImage
+                    productName={item.nombre}
+                    imageUrl={item.imagen_url}
+                    style={styles.productImage}
+                    fallback={
                     <Ionicons
                       name={iconInfo.name}
                       size={28}
                       color={iconInfo.color}
                     />
-                  )}
+                    }
+                  />
                 </View>
 
                 <View style={styles.productInfo}>
@@ -1551,8 +1550,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   productImageWrapper: {
-    width: 60,
-    height: 60,
+    width: 72,
+    height: 72,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',

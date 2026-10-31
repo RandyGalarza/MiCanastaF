@@ -36,6 +36,20 @@ interface PreparedPurchase {
   total: number;
 }
 
+type InsertedPurchase = Awaited<ReturnType<typeof insertarCompra>>;
+
+function readInsertedPurchase(value: InsertedPurchase | null): InsertedPurchase | null {
+  return value;
+}
+
+function readPreparedPurchase(value: PreparedPurchase | null): PreparedPurchase | null {
+  return value;
+}
+
+function readPayment(value: PagoPendiente | null): PagoPendiente | null {
+  return value;
+}
+
 function isDetalleCompraArray(value: unknown): value is DetalleCompra[] {
   return Array.isArray(value) && value.every((item) =>
     typeof item === 'object' &&
@@ -175,8 +189,8 @@ async function obtenerOCrearBilletera(id_usuario: number): Promise<{ id_billeter
   );
   if (!wallet) {
     await db.runAsync(
-      'INSERT OR IGNORE INTO billeteras (id_usuario, saldo) VALUES (?, 0)',
-      [id_usuario]
+      'INSERT OR IGNORE INTO billeteras (id_usuario, saldo) VALUES (?, ?)',
+      [id_usuario, 0]
     );
     wallet = await db.getFirstAsync<{ id_billetera: number; saldo: number }>(
       'SELECT * FROM billeteras WHERE id_usuario = ?',
@@ -218,7 +232,7 @@ export async function recargarSaldoDemostracion(id_usuario: number, monto: numbe
   }
 
   const db = await getDatabase();
-  const wallet = await obtenerOCrearBilletera(id_usuario);
+  await obtenerOCrearBilletera(id_usuario);
   const fecha = new Date().toISOString();
   await db.withTransactionAsync(async () => {
     const current = await db.getFirstAsync<{ id_billetera: number; saldo: number }>(
@@ -233,11 +247,10 @@ export async function recargarSaldoDemostracion(id_usuario: number, monto: numbe
     if (result.changes !== 1) throw new Error('No se pudo actualizar el saldo de prueba.');
     await db.runAsync(
       `INSERT INTO movimientos_saldo (id_usuario, tipo, monto, descripcion, fecha)
-       VALUES (?, 'recarga', ?, 'Recarga de saldo de demostración', ?)`,
-      [id_usuario, monto, fecha]
+       VALUES (?, ?, ?, ?, ?)`,
+      [id_usuario, 'recarga', monto, 'Recarga de saldo de demostración', fecha]
     );
   });
-  void wallet;
 }
 
 export async function pagarCompraConSaldo(
@@ -250,7 +263,7 @@ export async function pagarCompraConSaldo(
   const db = await getDatabase();
   await obtenerOCrearBilletera(id_usuario);
   const fecha = new Date().toISOString();
-  let purchase: Awaited<ReturnType<typeof insertarCompra>> | null = null;
+  let purchase: InsertedPurchase | null = null;
 
   await db.withTransactionAsync(async () => {
     const wallet = await db.getFirstAsync<{ id_billetera: number; saldo: number }>(
@@ -269,17 +282,19 @@ export async function pagarCompraConSaldo(
     );
     if (result.changes !== 1) throw new Error('No se pudo descontar el saldo de prueba.');
 
-    purchase = await insertarCompra(id_usuario, id_lista, nombre_lista, prepared);
+    const inserted = await insertarCompra(id_usuario, id_lista, nombre_lista, prepared);
+    purchase = inserted;
     await db.runAsync(
       `INSERT INTO movimientos_saldo (id_usuario, tipo, monto, descripcion, fecha, id_compra)
-       VALUES (?, 'compra', ?, ?, ?, ?)`,
-      [id_usuario, -prepared.total, `Compra: ${nombre_lista}`, fecha, purchase.id]
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id_usuario, 'compra', -prepared.total, `Compra: ${nombre_lista}`, fecha, inserted.id]
     );
   });
 
-  if (!purchase) throw new Error('No se pudo finalizar el pago con saldo.');
-  await sincronizarCompra(purchase.id, id_usuario, id_lista, nombre_lista, prepared, purchase);
-  return purchase.id;
+  const completedPurchase = readInsertedPurchase(purchase);
+  if (!completedPurchase) throw new Error('No se pudo finalizar el pago con saldo.');
+  await sincronizarCompra(completedPurchase.id, id_usuario, id_lista, nombre_lista, prepared, completedPurchase);
+  return completedPurchase.id;
 }
 
 export async function crearReferenciaPagoDemostracion(
@@ -296,8 +311,8 @@ export async function crearReferenciaPagoDemostracion(
   const result = await db.runAsync(
     `INSERT INTO pagos_pendientes
       (id_usuario, id_lista, nombre_lista, total, referencia, detalles_json, estado, fecha_creacion)
-     VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?)`,
-    [id_usuario, id_lista, nombre_lista, prepared.total, reference, detailsJson, fecha]
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id_usuario, id_lista, nombre_lista, prepared.total, reference, detailsJson, 'pendiente', fecha]
   );
   return {
     id_pago: result.lastInsertRowId,
@@ -319,7 +334,7 @@ export async function simularPagoReferencia(
 ): Promise<number> {
   const db = await getDatabase();
   let purchaseId = 0;
-  let purchase: Awaited<ReturnType<typeof insertarCompra>> | null = null;
+  let purchase: InsertedPurchase | null = null;
   let prepared: PreparedPurchase | null = null;
   let payment: PagoPendiente | null = null;
 
@@ -349,51 +364,36 @@ export async function simularPagoReferencia(
       throw new Error('El total de la referencia no coincide con sus productos.');
     }
 
-    purchase = await insertarCompra(
+    const inserted = await insertarCompra(
       id_usuario,
       payment.id_lista,
       payment.nombre_lista,
       prepared
     );
+    purchase = inserted;
     const update = await db.runAsync(
       "UPDATE pagos_pendientes SET estado = 'pagado', id_compra = ? WHERE id_pago = ? AND id_usuario = ?",
-      [purchase.id, id_pago, id_usuario]
+      [inserted.id, id_pago, id_usuario]
     );
     if (update.changes !== 1) throw new Error('No se pudo confirmar el pago de demostración.');
-    purchaseId = purchase.id;
+    purchaseId = inserted.id;
   });
 
-  if (purchase && prepared && payment) {
+  const completedPurchase = readInsertedPurchase(purchase);
+  const completedPrepared = readPreparedPurchase(prepared);
+  const completedPayment = readPayment(payment);
+  if (completedPurchase && completedPrepared && completedPayment) {
     await sincronizarCompra(
       purchaseId,
       id_usuario,
-      payment.id_lista,
-      payment.nombre_lista,
-      prepared,
-      purchase
+      completedPayment.id_lista,
+      completedPayment.nombre_lista,
+      completedPrepared,
+      completedPurchase
     );
   }
   if (!purchaseId) throw new Error('No se pudo completar la simulación de pago.');
   return purchaseId;
-}
-  await syncRecordToSupabase(
-    'compras',
-    {
-      id_compra: result.lastInsertRowId,
-      id_usuario,
-      id_lista,
-      nombre_lista,
-      numero_factura: numeroFactura,
-      fecha_compra: fechaCompra,
-      subtotal,
-      descuento,
-      total,
-      detalles_json: detallesJson,
-    },
-    'id_compra'
-  );
-
-  return result.lastInsertRowId;
 }
 
 export async function obtenerCompras(id_usuario: number): Promise<Compra[]> {
