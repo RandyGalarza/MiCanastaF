@@ -1,7 +1,11 @@
 import { getDatabase } from './database';
-import { DANE_IPC_2018_ARTICLES, DANE_IPC_2018_DIVISIONS } from './dane-ipc-2018';
+import {
+  COMMERCIAL_REFERENCE_DIVISIONS,
+  COMMERCIAL_REFERENCE_PRODUCTS,
+} from './commercial-reference-products';
 
-const DANE_IPC_DESCRIPTION_PREFIX = 'Artículo de seguimiento del IPC DANE 2018; código COICOP: ';
+const LEGACY_DANE_DESCRIPTION_PREFIX = 'Artículo de seguimiento del IPC DANE 2018; código COICOP: ';
+const COMMERCIAL_REFERENCE_DESCRIPTION_PREFIX = 'Producto de referencia comercial orientativo; código COICOP IPC 2018: ';
 
 export async function seedDatabase() {
   const db = await getDatabase();
@@ -22,7 +26,7 @@ export async function seedDatabase() {
     'Snacks y Confitería',
     'Condimentos y Especias',
     'Conservas y Enlatados',
-    ...DANE_IPC_2018_DIVISIONS.map(({ code, name }) => `IPC DANE ${code} - ${name}`),
+    ...COMMERCIAL_REFERENCE_DIVISIONS.map(({ code, name }) => `Catálogo orientativo ${code} - ${name}`),
   ];
 
   for (const cat of categoriasDemo) {
@@ -409,43 +413,64 @@ export async function seedDatabase() {
     }
   }
 
-  const productosExistentes = await db.getAllAsync<{ id_producto: number; descripcion: string | null }>(
+  const productosExistentes = await db.getAllAsync<{
+    id_producto: number;
+    descripcion: string | null;
+    pro_estado: number;
+  }>(
     'SELECT * FROM productos'
   );
-  const codigosDaneExistentes = new Set(
-    productosExistentes
-      .map((producto) => producto.descripcion)
-      .filter((descripcion): descripcion is string =>
-        descripcion?.startsWith(DANE_IPC_DESCRIPTION_PREFIX) ?? false
-      )
-      .map((descripcion) => descripcion.slice(DANE_IPC_DESCRIPTION_PREFIX.length))
+  const productosReferenciaPorCodigo = new Map<string, number>();
+  const codigosReferenciaActivos = new Set<string>(
+    COMMERCIAL_REFERENCE_PRODUCTS.map((articulo) => articulo.code)
   );
 
-  for (const articulo of DANE_IPC_2018_ARTICLES) {
-    if (codigosDaneExistentes.has(articulo.code)) continue;
+  for (const producto of productosExistentes) {
+    const descripcion = producto.descripcion ?? '';
+    const esReferenciaDaneAnterior = descripcion.startsWith(LEGACY_DANE_DESCRIPTION_PREFIX);
+    const esReferenciaComercial = descripcion.startsWith(COMMERCIAL_REFERENCE_DESCRIPTION_PREFIX);
+    if (!esReferenciaDaneAnterior && !esReferenciaComercial) continue;
 
-    const division = DANE_IPC_2018_DIVISIONS.find(({ code }) => code === articulo.division);
-    const idCategoria = division
-      ? categoriaIdPorNombre.get(`IPC DANE ${division.code} - ${division.name}`)
-      : undefined;
-    if (idCategoria === undefined) {
-      throw new Error(`No se pudo asociar el artículo IPC DANE ${articulo.code} a su división.`);
+    const prefix = esReferenciaDaneAnterior
+      ? LEGACY_DANE_DESCRIPTION_PREFIX
+      : COMMERCIAL_REFERENCE_DESCRIPTION_PREFIX;
+    const code = descripcion.slice(prefix.length).replace(/\.$/, '');
+    productosReferenciaPorCodigo.set(code, producto.id_producto);
+
+    if (!codigosReferenciaActivos.has(code) && producto.pro_estado !== 0) {
+      await db.runAsync(
+        'UPDATE productos SET pro_estado = ? WHERE id_producto = ?',
+        [0, producto.id_producto]
+      );
     }
-
-    await db.runAsync(
-      `INSERT INTO productos (id_categoria, id_comercio, nombre, descripcion, unidad_medida, pro_estado)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        idCategoria,
-        null,
-        articulo.name,
-        `${DANE_IPC_DESCRIPTION_PREFIX}${articulo.code}.`,
-        'Artículo IPC',
-        1,
-      ]
-    );
-    codigosDaneExistentes.add(articulo.code);
   }
 
-  console.log('✅ Base local poblada con comercios demo, productos de referencia y los 443 artículos IPC DANE 2018.');
+  for (const articulo of COMMERCIAL_REFERENCE_PRODUCTS) {
+    const division = COMMERCIAL_REFERENCE_DIVISIONS.find(({ code }) => code === articulo.division);
+    const idCategoria = division
+      ? categoriaIdPorNombre.get(`Catálogo orientativo ${division.code} - ${division.name}`)
+      : undefined;
+    if (idCategoria === undefined) {
+      throw new Error(`No se pudo asociar el producto de referencia ${articulo.code} a su división.`);
+    }
+
+    const idProducto = productosReferenciaPorCodigo.get(articulo.code);
+    const descripcion = `${COMMERCIAL_REFERENCE_DESCRIPTION_PREFIX}${articulo.code}.`;
+    if (idProducto !== undefined) {
+      await db.runAsync(
+        `UPDATE productos
+         SET id_categoria = ?, id_comercio = ?, nombre = ?, descripcion = ?, unidad_medida = ?, pro_estado = ?
+         WHERE id_producto = ?`,
+        [idCategoria, null, articulo.name, descripcion, 'Unidad', 1, idProducto]
+      );
+    } else {
+      await db.runAsync(
+        `INSERT INTO productos (id_categoria, id_comercio, nombre, descripcion, unidad_medida, pro_estado)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [idCategoria, null, articulo.name, descripcion, 'Unidad', 1]
+      );
+    }
+  }
+
+  console.log('✅ Base local poblada con comercios demo y 419 productos de referencia comercial.');
 }
