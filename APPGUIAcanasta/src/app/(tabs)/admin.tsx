@@ -767,7 +767,7 @@ function AdminMetric({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#f7f8f6',
   },
   header: {
     flexDirection: 'row',
@@ -795,7 +795,7 @@ const styles = StyleSheet.create({
   },
   summaryScroll: { height: 116, flexGrow: 0, flexShrink: 0, marginBottom: 2 },
   summaryStrip: { minHeight: 116, alignItems: 'center', gap: 9, paddingHorizontal: 20 },
-  metricCard: { width: 112, height: 100, padding: 11, borderRadius: 15, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcfce7', gap: 5 },
+  metricCard: { width: 112, height: 100, padding: 11, borderRadius: 18, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7', gap: 5 },
   metricIcon: { width: 29, height: 29, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
   metricIcon_green: { backgroundColor: '#dcfce7' },
   metricIcon_blue: { backgroundColor: '#e0f2fe' },
@@ -803,7 +803,7 @@ const styles = StyleSheet.create({
   metricIcon_purple: { backgroundColor: '#f3e8ff' },
   metricValue: { color: '#14532d', fontSize: 16, fontWeight: '800' },
   metricLabel: { color: '#64748b', fontSize: 9, fontWeight: '600' },
-  searchBox: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: 11, paddingHorizontal: 12, borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 12, backgroundColor: '#ffffff' },
+  searchBox: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: '#e1e8e1', borderRadius: 14, backgroundColor: '#ffffff' },
   searchInput: { flex: 1, minHeight: 40, color: '#0f172a', fontSize: 12 },
   tabsNav: {
     flexDirection: 'row',

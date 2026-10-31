@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Modal,
   Platform,
   Pressable,
@@ -43,6 +44,16 @@ const UNIDADES_COMUNES = [
   'Docena',
   'Otro',
 ] as const;
+
+type OrdenProductos = 'relevancia' | 'nombre' | 'precio_asc' | 'precio_desc';
+
+function normalizarTextoBusqueda(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
 
 /**
  * Mapeo inteligente de iconos predeterminados de la canasta familiar
@@ -99,6 +110,11 @@ export default function ProductosScreen() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState('');
+  const [filtrosVisibles, setFiltrosVisibles] = useState(false);
+  const [categoriasFiltro, setCategoriasFiltro] = useState<number[]>([]);
+  const [comerciosFiltro, setComerciosFiltro] = useState<number[]>([]);
+  const [soloConPrecio, setSoloConPrecio] = useState(false);
+  const [ordenProductos, setOrdenProductos] = useState<OrdenProductos>('relevancia');
 
   // Filtro para usuarios comercio: ver todos o ver solo los suyos
   const [soloMisProductos, setSoloMisProductos] = useState(false);
@@ -131,6 +147,14 @@ export default function ProductosScreen() {
   // Determinar el comercio asociado al usuario actual si es rol 'comercio'
   const miComercioId = user?.id_comercio ?? null;
   const miComercio = comercios.find((c) => c.id_comercio === miComercioId);
+  const categoriasPorId = useMemo(
+    () => new Map(categorias.map((categoria) => [categoria.id_categoria, categoria])),
+    [categorias]
+  );
+  const comerciosPorId = useMemo(
+    () => new Map(comercios.map((comercio) => [comercio.id_comercio, comercio])),
+    [comercios]
+  );
 
   const puedeGestionarProducto = (prod: Producto): boolean => {
     if (isAdmin) return true;
@@ -374,15 +398,112 @@ export default function ProductosScreen() {
     }
   };
 
-  const productosFiltrados = productos.filter((p) => {
-    if (isComercio && soloMisProductos) {
-      if (p.id_comercio !== miComercioId) return false;
-    }
-    const matchBusqueda =
-      p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-      (p.marca && p.marca.toLowerCase().includes(busqueda.toLowerCase()));
-    return matchBusqueda;
-  });
+  const terminosBusqueda = normalizarTextoBusqueda(busqueda)
+    .split(/\s+/)
+    .filter(Boolean);
+  const productosFiltrados = productos
+    .filter((producto) => {
+      if (isComercio && soloMisProductos && producto.id_comercio !== miComercioId) {
+        return false;
+      }
+      if (categoriasFiltro.length > 0 && !categoriasFiltro.includes(producto.id_categoria)) {
+        return false;
+      }
+      if (
+        comerciosFiltro.length > 0 &&
+        (producto.id_comercio === null || !comerciosFiltro.includes(producto.id_comercio))
+      ) {
+        return false;
+      }
+
+      const precio = Number(producto.precio);
+      if (soloConPrecio && (!Number.isFinite(precio) || precio <= 0)) {
+        return false;
+      }
+
+      const comercio = producto.id_comercio === null
+        ? ''
+        : comerciosPorId.get(producto.id_comercio)?.nombre ?? '';
+      const categoria = categoriasPorId.get(producto.id_categoria)?.descripcion ?? '';
+      const textoProducto = normalizarTextoBusqueda([
+        producto.nombre,
+        producto.marca ?? '',
+        producto.descripcion ?? '',
+        producto.unidad_medida,
+        categoria,
+        comercio,
+      ].join(' '));
+
+      return terminosBusqueda.every((termino) => textoProducto.includes(termino));
+    })
+    .sort((a, b) => {
+      if (ordenProductos === 'nombre') {
+        return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+      }
+
+      if (ordenProductos === 'precio_asc' || ordenProductos === 'precio_desc') {
+        const precioA = Number(a.precio);
+        const precioB = Number(b.precio);
+        const tienePrecioA = Number.isFinite(precioA) && precioA > 0;
+        const tienePrecioB = Number.isFinite(precioB) && precioB > 0;
+
+        if (tienePrecioA !== tienePrecioB) return tienePrecioA ? -1 : 1;
+        if (tienePrecioA && tienePrecioB && precioA !== precioB) {
+          return ordenProductos === 'precio_asc' ? precioA - precioB : precioB - precioA;
+        }
+        return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+      }
+
+      if (terminosBusqueda.length > 0) {
+        const score = (producto: Producto) => {
+          const nombreNormalizado = normalizarTextoBusqueda(producto.nombre);
+          const marcaNormalizada = normalizarTextoBusqueda(producto.marca ?? '');
+          return terminosBusqueda.reduce(
+            (total, termino) =>
+              total +
+              (nombreNormalizado === termino ? 5 : 0) +
+              (nombreNormalizado.startsWith(termino) ? 3 : 0) +
+              (nombreNormalizado.includes(termino) ? 2 : 0) +
+              (marcaNormalizada.includes(termino) ? 1 : 0),
+            0
+          );
+        };
+        const diferenciaRelevancia = score(b) - score(a);
+        if (diferenciaRelevancia !== 0) return diferenciaRelevancia;
+      }
+
+      return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+    });
+
+  const cantidadFiltrosActivos =
+    categoriasFiltro.length +
+    comerciosFiltro.length +
+    Number(soloConPrecio) +
+    Number(ordenProductos !== 'relevancia');
+
+  const alternarCategoriaFiltro = (idCategoria: number) => {
+    setCategoriasFiltro((actuales) =>
+      actuales.includes(idCategoria)
+        ? actuales.filter((id) => id !== idCategoria)
+        : [...actuales, idCategoria]
+    );
+  };
+
+  const alternarComercioFiltro = (idComercio: number) => {
+    setComerciosFiltro((actuales) =>
+      actuales.includes(idComercio)
+        ? actuales.filter((id) => id !== idComercio)
+        : [...actuales, idComercio]
+    );
+  };
+
+  const limpiarBusquedaYFiltros = () => {
+    setBusqueda('');
+    setCategoriasFiltro([]);
+    setComerciosFiltro([]);
+    setSoloConPrecio(false);
+    setOrdenProductos('relevancia');
+  };
 
   return (
     <View style={styles.container}>
@@ -392,6 +513,186 @@ export default function ProductosScreen() {
         type={toast.type}
         onHide={() => setToast((t) => ({ ...t, visible: false }))}
       />
+
+      <Modal
+        visible={filtrosVisibles}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setFiltrosVisibles(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.filterModalCard}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Filtrar productos</Text>
+                <Text style={styles.filterModalSubtitle}>
+                  Puedes elegir varias opciones y quitarlas cuando quieras
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setFiltrosVisibles(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar filtros"
+                style={styles.closeFiltersButton}
+              >
+                <Ionicons name="close" size={22} color="#475569" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.filterModalScroll}
+              contentContainerStyle={styles.filterModalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.filterSectionTitle}>Categoría</Text>
+              <View style={styles.pickerRow}>
+                <TouchableOpacity
+                  style={[styles.chip, categoriasFiltro.length === 0 && styles.chipSelected]}
+                  onPress={() => setCategoriasFiltro([])}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: categoriasFiltro.length === 0 }}
+                >
+                  <Text style={[styles.chipText, categoriasFiltro.length === 0 && styles.chipTextSelected]}>
+                    Todas
+                  </Text>
+                </TouchableOpacity>
+                {categorias.map((categoria) => {
+                  const seleccionada = categoriasFiltro.includes(categoria.id_categoria);
+                  return (
+                  <TouchableOpacity
+                    key={categoria.id_categoria}
+                    style={[
+                      styles.chip,
+                      seleccionada && styles.chipSelected,
+                    ]}
+                    onPress={() => alternarCategoriaFiltro(categoria.id_categoria)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: seleccionada }}
+                  >
+                    <View style={styles.multiSelectChipContent}>
+                      <Text
+                        style={[
+                          styles.chipText,
+                          seleccionada && styles.chipTextSelected,
+                        ]}
+                      >
+                        {categoria.descripcion}
+                      </Text>
+                      {seleccionada && <Ionicons name="checkmark-circle" size={14} color="#15803d" />}
+                    </View>
+                  </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.filterSectionTitle}>Comercio</Text>
+              <View style={styles.pickerRow}>
+                <TouchableOpacity
+                  style={[styles.chip, comerciosFiltro.length === 0 && styles.chipSelected]}
+                  onPress={() => setComerciosFiltro([])}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: comerciosFiltro.length === 0 }}
+                >
+                  <Text style={[styles.chipText, comerciosFiltro.length === 0 && styles.chipTextSelected]}>
+                    Todos
+                  </Text>
+                </TouchableOpacity>
+                {comercios.map((comercio) => {
+                  const seleccionado = comerciosFiltro.includes(comercio.id_comercio);
+                  return (
+                  <TouchableOpacity
+                    key={comercio.id_comercio}
+                    style={[
+                      styles.chip,
+                      seleccionado && styles.chipSelected,
+                    ]}
+                    onPress={() => alternarComercioFiltro(comercio.id_comercio)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: seleccionado }}
+                  >
+                    <View style={styles.multiSelectChipContent}>
+                      <Text
+                        style={[
+                          styles.chipText,
+                          seleccionado && styles.chipTextSelected,
+                        ]}
+                      >
+                        {comercio.nombre}
+                      </Text>
+                      {seleccionado && <Ionicons name="checkmark-circle" size={14} color="#15803d" />}
+                    </View>
+                  </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.filterSectionTitle}>Precio</Text>
+              <TouchableOpacity
+                style={styles.priceFilterOption}
+                onPress={() => setSoloConPrecio((actual) => !actual)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: soloConPrecio }}
+              >
+                <Ionicons
+                  name={soloConPrecio ? 'checkbox' : 'square-outline'}
+                  size={21}
+                  color={soloConPrecio ? '#15803d' : '#64748b'}
+                />
+                <View style={styles.priceFilterCopy}>
+                  <Text style={styles.priceFilterTitle}>Solo productos con precio</Text>
+                  <Text style={styles.priceFilterHint}>Oculta productos cuyo precio está por consultar</Text>
+                </View>
+              </TouchableOpacity>
+
+              <Text style={styles.filterSectionTitle}>Ordenar por</Text>
+              <View style={styles.pickerRow}>
+                {([
+                  ['relevancia', 'Más relevantes'],
+                  ['nombre', 'Nombre A-Z'],
+                  ['precio_asc', 'Menor precio'],
+                  ['precio_desc', 'Mayor precio'],
+                ] as const).map(([orden, etiqueta]) => (
+                  <TouchableOpacity
+                    key={orden}
+                    style={[styles.chip, ordenProductos === orden && styles.chipSelected]}
+                    onPress={() => setOrdenProductos(orden)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: ordenProductos === orden }}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        ordenProductos === orden && styles.chipTextSelected,
+                      ]}
+                    >
+                      {etiqueta}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={styles.filterModalFooter}>
+              <TouchableOpacity
+                style={styles.clearFiltersButton}
+                onPress={limpiarBusquedaYFiltros}
+                accessibilityRole="button"
+              >
+                <Text style={styles.clearFiltersText}>Limpiar todo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.applyFiltersButton}
+                onPress={() => setFiltrosVisibles(false)}
+                accessibilityRole="button"
+              >
+                <Text style={styles.applyFiltersText}>
+                  Ver {productosFiltrados.length} resultados
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Cabecera */}
       <View style={styles.header}>
@@ -461,22 +762,146 @@ export default function ProductosScreen() {
         </View>
       )}
 
-      {/* Buscador */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#64748b" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Buscar producto, marca..."
-          placeholderTextColor="#94a3b8"
-          value={busqueda}
-          onChangeText={setBusqueda}
-        />
-        {busqueda.length > 0 && (
-          <TouchableOpacity onPress={() => setBusqueda('')}>
-            <Ionicons name="close-circle" size={18} color="#94a3b8" />
+      {/* Buscador y filtros */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color="#64748b" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Producto, marca, categoría o tienda"
+            placeholderTextColor="#94a3b8"
+            value={busqueda}
+            onChangeText={setBusqueda}
+            autoCorrect={false}
+            returnKeyType="search"
+            accessibilityLabel="Buscar productos por nombre, marca, categoría o tienda"
+          />
+          {busqueda.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setBusqueda('')}
+              accessibilityRole="button"
+              accessibilityLabel="Limpiar búsqueda"
+              hitSlop={8}
+            >
+              <Ionicons name="close-circle" size={19} color="#94a3b8" />
+            </TouchableOpacity>
+          )}
+        </View>
+        <TouchableOpacity
+          style={[styles.openFiltersButton, cantidadFiltrosActivos > 0 && styles.openFiltersButtonActive]}
+          onPress={() => setFiltrosVisibles(true)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            cantidadFiltrosActivos > 0
+              ? `Abrir filtros, ${cantidadFiltrosActivos} filtros activos`
+              : 'Abrir filtros de productos'
+          }
+        >
+          <Ionicons
+            name="options-outline"
+            size={20}
+            color={cantidadFiltrosActivos > 0 ? '#15803d' : '#334155'}
+          />
+          <Text
+            style={[
+              styles.openFiltersText,
+              cantidadFiltrosActivos > 0 && styles.openFiltersTextActive,
+            ]}
+          >
+            Filtros{cantidadFiltrosActivos > 0 ? ` (${cantidadFiltrosActivos})` : ''}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <View style={styles.resultsSummary}>
+        <Text style={styles.resultsSummaryText}>
+          {productosFiltrados.length === 1
+            ? '1 producto encontrado'
+            : `${productosFiltrados.length} productos encontrados`}
+        </Text>
+        {(busqueda.trim().length > 0 || cantidadFiltrosActivos > 0) && (
+          <TouchableOpacity
+            onPress={limpiarBusquedaYFiltros}
+            accessibilityRole="button"
+            accessibilityLabel="Quitar búsqueda y todos los filtros"
+          >
+            <Text style={styles.clearSearchText}>Borrar búsqueda y filtros</Text>
           </TouchableOpacity>
         )}
       </View>
+      {cantidadFiltrosActivos > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.activeFiltersContent}
+          style={styles.activeFiltersScroll}
+          keyboardShouldPersistTaps="handled"
+        >
+          {categoriasFiltro.map((idCategoria) => {
+            const categoria = categoriasPorId.get(idCategoria);
+            if (!categoria) return null;
+            return (
+              <TouchableOpacity
+                key={`categoria-${idCategoria}`}
+                style={styles.activeFilterChip}
+                onPress={() => alternarCategoriaFiltro(idCategoria)}
+                accessibilityRole="button"
+                accessibilityLabel={`Quitar filtro de categoría ${categoria.descripcion}`}
+              >
+                <Text style={styles.activeFilterChipText} numberOfLines={1}>
+                  {categoria.descripcion}
+                </Text>
+                <Ionicons name="close-circle" size={16} color="#15803d" />
+              </TouchableOpacity>
+            );
+          })}
+          {comerciosFiltro.map((idComercio) => {
+            const comercio = comerciosPorId.get(idComercio);
+            if (!comercio) return null;
+            return (
+              <TouchableOpacity
+                key={`comercio-${idComercio}`}
+                style={styles.activeFilterChip}
+                onPress={() => alternarComercioFiltro(idComercio)}
+                accessibilityRole="button"
+                accessibilityLabel={`Quitar filtro de comercio ${comercio.nombre}`}
+              >
+                <Text style={styles.activeFilterChipText} numberOfLines={1}>
+                  {comercio.nombre}
+                </Text>
+                <Ionicons name="close-circle" size={16} color="#15803d" />
+              </TouchableOpacity>
+            );
+          })}
+          {soloConPrecio && (
+            <TouchableOpacity
+              style={styles.activeFilterChip}
+              onPress={() => setSoloConPrecio(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Quitar filtro de productos con precio"
+            >
+              <Text style={styles.activeFilterChipText}>Con precio</Text>
+              <Ionicons name="close-circle" size={16} color="#15803d" />
+            </TouchableOpacity>
+          )}
+          {ordenProductos !== 'relevancia' && (
+            <TouchableOpacity
+              style={styles.activeFilterChip}
+              onPress={() => setOrdenProductos('relevancia')}
+              accessibilityRole="button"
+              accessibilityLabel="Quitar orden personalizado"
+            >
+              <Text style={styles.activeFilterChipText}>
+                {ordenProductos === 'nombre'
+                  ? 'Nombre A-Z'
+                  : ordenProductos === 'precio_asc'
+                  ? 'Menor precio'
+                  : 'Mayor precio'}
+              </Text>
+              <Ionicons name="close-circle" size={16} color="#15803d" />
+            </TouchableOpacity>
+          )}
+        </ScrollView>
+      )}
 
       {/* Banner para comercio */}
       {isComercio && (
@@ -492,7 +917,7 @@ export default function ProductosScreen() {
       {cargando ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#16a34a" />
-          <Text style={styles.loadingText}>Cargando catálogo de Riohacha...</Text>
+          <Text style={styles.loadingText}>Cargando catálogo...</Text>
         </View>
       ) : productosFiltrados.length === 0 ? (
         <View style={styles.centerContainer}>
@@ -500,17 +925,25 @@ export default function ProductosScreen() {
           <Text style={styles.emptyTitle}>No hay productos disponibles</Text>
           <Text style={styles.emptySubtitle}>
             {busqueda
-              ? 'No hay coincidencias con tu búsqueda.'
+              ? 'Prueba con otros términos o quita algunos filtros.'
               : soloMisProductos
               ? 'Aún no has registrado productos para tu comercio.'
-              : 'Aún no se han agregado productos.'}
+              : 'No hay productos que coincidan con los filtros seleccionados.'}
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.listContent}>
-          {productosFiltrados.map((item) => {
-            const cat = categorias.find((c) => c.id_categoria === item.id_categoria);
-            const com = comercios.find((c) => c.id_comercio === item.id_comercio);
+        <FlatList
+          style={styles.productList}
+          contentContainerStyle={styles.listContent}
+          data={productosFiltrados}
+          keyExtractor={(item) => String(item.id_producto)}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          keyboardShouldPersistTaps="handled"
+          renderItem={({ item }) => {
+            const cat = categoriasPorId.get(item.id_categoria);
+            const com = item.id_comercio === null ? undefined : comerciosPorId.get(item.id_comercio);
             const esMio = isComercio && item.id_comercio === miComercioId;
             const tengoPermiso = puedeGestionarProducto(item);
             const iconInfo = getProductDefaultIcon(item.id_categoria, item.nombre);
@@ -616,8 +1049,8 @@ export default function ProductosScreen() {
                 )}
               </View>
             );
-          })}
-        </ScrollView>
+          }}
+        />
       )}
 
       {/* Modal para añadir / editar producto con selector de imagen */}
@@ -867,7 +1300,7 @@ export default function ProductosScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#f7f8f6',
   },
   header: {
     flexDirection: 'row',
@@ -914,7 +1347,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 3,
     borderWidth: 1,
-    borderColor: '#dcfce7',
+    borderColor: '#e7ece7',
     gap: 4,
   },
   filterTab: {
@@ -938,25 +1371,103 @@ const styles = StyleSheet.create({
     color: '#14532d',
     fontWeight: '700',
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 8,
+  },
   searchContainer: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    marginHorizontal: 20,
-    marginBottom: 12,
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#bbf7d0',
+    borderColor: '#e1e8e1',
+  },
+  openFiltersButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  openFiltersButtonActive: {
+    borderColor: '#86efac',
+    backgroundColor: '#f0fdf4',
+  },
+  openFiltersText: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  openFiltersTextActive: {
+    color: '#15803d',
   },
   searchIcon: {
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 10,
+    minWidth: 0,
+    paddingVertical: 11,
     fontSize: 14,
     color: '#0f172a',
+  },
+  resultsSummary: {
+    minHeight: 28,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 8,
+  },
+  resultsSummaryText: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  clearSearchText: {
+    color: '#15803d',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  activeFiltersScroll: {
+    flexGrow: 0,
+    marginBottom: 8,
+  },
+  activeFiltersContent: {
+    flexDirection: 'row',
+    gap: 7,
+    paddingHorizontal: 20,
+  },
+  activeFilterChip: {
+    maxWidth: 240,
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#86efac',
+    backgroundColor: '#f0fdf4',
+  },
+  activeFilterChipText: {
+    flexShrink: 1,
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '600',
   },
   userBanner: {
     flexDirection: 'row',
@@ -1022,6 +1533,9 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     gap: 12,
   },
+  productList: {
+    flex: 1,
+  },
   productCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1029,7 +1543,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#dcfce7',
+    borderColor: '#e7ece7',
     boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.04)',
   },
   productCardPropio: {
@@ -1197,6 +1711,95 @@ const styles = StyleSheet.create({
   modalScroll: {
     maxHeight: 460,
   },
+  filterModalCard: {
+    width: '100%',
+    maxHeight: '92%',
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 18,
+    boxShadow: '0px 10px 25px rgba(0,0,0,0.15)',
+  },
+  filterModalSubtitle: {
+    marginTop: 3,
+    color: '#64748b',
+    fontSize: 12,
+  },
+  closeFiltersButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  filterModalScroll: {
+    flexShrink: 1,
+  },
+  filterModalContent: {
+    paddingBottom: 12,
+  },
+  filterSectionTitle: {
+    marginTop: 12,
+    marginBottom: 3,
+    color: '#14532d',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  priceFilterOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  priceFilterCopy: {
+    flex: 1,
+  },
+  priceFilterTitle: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  priceFilterHint: {
+    marginTop: 2,
+    color: '#64748b',
+    fontSize: 11,
+  },
+  filterModalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    paddingTop: 12,
+    marginTop: 8,
+  },
+  clearFiltersButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#f1f5f9',
+  },
+  clearFiltersText: {
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  applyFiltersButton: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#16a34a',
+  },
+  applyFiltersText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   imagePickerRow: {
     alignItems: 'center',
     marginBottom: 12,
@@ -1206,7 +1809,7 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#bbf7d0',
+    borderColor: '#e1e8e1',
     borderStyle: 'dashed',
     backgroundColor: '#f0fdf4',
     alignItems: 'center',
@@ -1350,6 +1953,11 @@ const styles = StyleSheet.create({
   chipTextSelected: {
     color: '#15803d',
     fontWeight: '700',
+  },
+  multiSelectChipContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   fixedComercioCard: {
     flexDirection: 'row',

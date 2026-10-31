@@ -76,7 +76,9 @@ function TabButton({ label, icon, isFocused, ...props }: TabButtonProps) {
         isFocused && styles.selectedTab,
         pressed && styles.pressed,
       ]}>
-      <Ionicons name={icon} size={20} color={isFocused ? '#16a34a' : '#64748b'} />
+      <View style={[styles.iconWrap, isFocused && styles.selectedIconWrap]}>
+        <Ionicons name={icon} size={19} color={isFocused ? '#168344' : '#718076'} />
+      </View>
       <Text style={[styles.label, isFocused && styles.selectedLabel]} numberOfLines={1}>
         {label}
       </Text>
@@ -96,34 +98,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-around',
     gap: 4,
-    backgroundColor: '#f0fdf4',
-    borderTopWidth: 1,
-    borderTopColor: '#bbf7d0',
-    paddingTop: 8,
-    paddingHorizontal: 8,
+    marginHorizontal: 12,
+    marginBottom: 5,
+    paddingTop: 7,
+    paddingHorizontal: 7,
+    backgroundColor: '#ffffff',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#e7ece7',
+    boxShadow: '0px 4px 16px rgba(31, 56, 38, 0.10)',
   },
   tabButton: {
     flex: 1,
     minWidth: 0,
-    minHeight: 52,
+    minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
-    borderRadius: 12,
+    gap: 2,
+    borderRadius: 16,
     paddingHorizontal: 2,
-    paddingVertical: 5,
+    paddingVertical: 4,
   },
   selectedTab: {
-    backgroundColor: '#dcfce7',
+    backgroundColor: '#f0f7ef',
+  },
+  iconWrap: {
+    width: 30,
+    height: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+  },
+  selectedIconWrap: {
+    backgroundColor: '#e0f0df',
   },
   label: {
-    color: '#64748b',
+    color: '#718076',
     fontSize: 10,
     fontWeight: '500',
     textAlign: 'center',
   },
   selectedLabel: {
-    color: '#14532d',
+    color: '#23663a',
     fontWeight: '700',
   },
   pressed: {

@@ -181,7 +181,7 @@ export default function RecuperarContrasenaScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#f7f8f6',
   },
   scrollContainer: {
     flexGrow: 1,
@@ -201,9 +201,11 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 24,
-    boxShadow: '0px 4px 12px rgba(22, 163, 74, 0.08)',
+    borderWidth: 1,
+    borderColor: '#e7ece7',
+    boxShadow: '0px 5px 18px rgba(31, 56, 38, 0.06)',
   },
   headerIconContainer: {
     width: 56,

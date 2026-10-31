@@ -135,6 +135,59 @@ CREATE TABLE IF NOT EXISTS compras (
         ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS billeteras (
+    id_billetera INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL UNIQUE,
+    saldo REAL NOT NULL DEFAULT 0,
+    fecha_actualizacion TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS movimientos_saldo (
+    id_movimiento INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    tipo TEXT NOT NULL,
+    monto REAL NOT NULL,
+    descripcion TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    id_compra INTEGER,
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (id_compra)
+        REFERENCES compras(id_compra)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS pagos_pendientes (
+    id_pago INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    id_lista INTEGER,
+    nombre_lista TEXT NOT NULL,
+    total REAL NOT NULL,
+    referencia TEXT NOT NULL UNIQUE,
+    detalles_json TEXT NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'pendiente',
+    id_compra INTEGER,
+    fecha_creacion TEXT NOT NULL,
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (id_compra)
+        REFERENCES compras(id_compra)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS detalles_presupuesto (
     id_detalle INTEGER PRIMARY KEY AUTOINCREMENT,
     id_presupuesto INTEGER NOT NULL,

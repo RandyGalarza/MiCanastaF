@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Link, useLocalSearchParams } from 'expo-router';
+import { router, Link, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/contexts/auth-context';
@@ -63,11 +63,14 @@ export default function FacturaScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.topBar}>
-        <Link href="/historial-compras" asChild>
-          <Pressable style={styles.backButton} accessibilityRole="button" accessibilityLabel="Volver al historial">
-            <Ionicons name="arrow-back" size={20} color="#166534" />
-          </Pressable>
-        </Link>
+        <Pressable
+          onPress={() => router.push('/historial-compras')}
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="Volver al historial"
+        >
+          <Ionicons name="arrow-back" size={20} color="#166534" />
+        </Pressable>
         <Text style={styles.topTitle}>Detalle de factura</Text>
       </View>
 
@@ -141,23 +144,23 @@ function TotalRow({ label, value, highlight, strong }: { label: string; value: s
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0fdf4' },
+  container: { flex: 1, backgroundColor: '#f7f8f6' },
   content: { padding: 18, paddingTop: 20, paddingBottom: 36, gap: 13, width: '100%', maxWidth: 760, alignSelf: 'center' },
   topBar: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   backButton: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
   topTitle: { color: '#14532d', fontSize: 18, fontWeight: '800' },
-  stateCard: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 22, borderRadius: 18, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcfce7' },
+  stateCard: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 22, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },
   cardTitle: { color: '#14532d', fontSize: 16, fontWeight: '800', textAlign: 'center' },
   bodyText: { color: '#64748b', fontSize: 12, textAlign: 'center' },
   loginButton: { color: '#ffffff', backgroundColor: '#16a34a', paddingHorizontal: 17, paddingVertical: 11, borderRadius: 12, overflow: 'hidden', fontSize: 13, fontWeight: '700' },
-  invoiceHeader: { alignItems: 'center', padding: 20, gap: 5, borderRadius: 18, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcfce7' },
+  invoiceHeader: { alignItems: 'center', padding: 20, gap: 5, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },
   invoiceIcon: { width: 52, height: 52, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#dcfce7', marginBottom: 5 },
   invoiceTitle: { color: '#14532d', fontSize: 20, fontWeight: '800' },
   invoiceNumber: { color: '#334155', fontSize: 12, fontWeight: '700' },
   invoiceMeta: { color: '#64748b', fontSize: 11 },
   listTag: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, marginTop: 5, borderRadius: 20, backgroundColor: '#f0fdf4' },
   listName: { color: '#166534', fontSize: 11, fontWeight: '700' },
-  itemsCard: { padding: 15, borderRadius: 17, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcfce7' },
+  itemsCard: { padding: 15, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },
   sectionTitle: { color: '#14532d', fontSize: 15, fontWeight: '800', marginBottom: 6 },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
   productIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
@@ -167,7 +170,7 @@ const styles = StyleSheet.create({
   discountTag: { color: '#15803d', fontSize: 10, fontWeight: '700' },
   noDiscount: { color: '#64748b', fontSize: 10 },
   lineTotal: { color: '#14532d', fontSize: 12, fontWeight: '800' },
-  totalsCard: { padding: 15, gap: 11, borderRadius: 17, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcfce7' },
+  totalsCard: { padding: 15, gap: 11, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   totalLabel: { flex: 1, color: '#64748b', fontSize: 11 },
   totalValue: { color: '#334155', fontSize: 12, fontWeight: '700' },

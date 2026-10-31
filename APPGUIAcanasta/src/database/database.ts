@@ -7,6 +7,7 @@ export interface DatabaseConnection {
   runAsync(sql: string, params?: any): Promise<{ lastInsertRowId: number; changes: number }>;
   getFirstAsync<T>(sql: string, params?: any): Promise<T | null>;
   getAllAsync<T>(sql: string, params?: any): Promise<T[]>;
+  withTransactionAsync(task: () => Promise<void>): Promise<void>;
 }
 
 const WEB_DB_KEY = 'canasta_familiar_db';
@@ -103,6 +104,19 @@ class WebDatabaseAdapter implements DatabaseConnection {
     if (changed) this.saveToStorage();
   }
 
+  async withTransactionAsync(task: () => Promise<void>): Promise<void> {
+    const tablesSnapshot = JSON.parse(JSON.stringify(this.tables));
+    const incrementsSnapshot = { ...this.autoIncrements };
+    try {
+      await task();
+    } catch (error) {
+      this.tables = tablesSnapshot;
+      this.autoIncrements = incrementsSnapshot;
+      this.saveToStorage();
+      throw error;
+    }
+  }
+
   async runAsync(sql: string, params: any = []): Promise<{ lastInsertRowId: number; changes: number }> {
     const trimmed = sql.trim();
     const paramList: any[] = Array.isArray(params) ? params : [params];
@@ -129,6 +143,14 @@ class WebDatabaseAdapter implements DatabaseConnection {
           if (exists) return { lastInsertRowId: 0, changes: 0 };
         }
       }
+      if (isIgnore && tableName === 'billeteras') {
+        const userIdx = cols.indexOf('id_usuario');
+        if (userIdx >= 0) {
+          const userId = paramList[userIdx];
+          const exists = this.tables[tableName].some((row) => row.id_usuario === userId);
+          if (exists) return { lastInsertRowId: 0, changes: 0 };
+        }
+      }
 
       const idColumns: Record<string, string> = {
         usuarios: 'id_usuario',
@@ -140,6 +162,9 @@ class WebDatabaseAdapter implements DatabaseConnection {
         listas_compra: 'id_lista',
         detalles_lista_compra: 'id_detalle',
         compras: 'id_compra',
+        billeteras: 'id_billetera',
+        movimientos_saldo: 'id_movimiento',
+        pagos_pendientes: 'id_pago',
         detalles_presupuesto: 'id_detalle',
         facturas: 'id_factura',
         detalles_factura: 'id_detalle_factura',
@@ -348,6 +373,11 @@ class WebDatabaseAdapter implements DatabaseConnection {
         records = records.filter(
           (r) => r.nombre === paramList[0] && r.id_comercio === paramList[1]
         );
+      } else if (trimmed.includes('WHERE id_pago = ? AND id_usuario = ?')) {
+        records = records.filter(
+          (r) => Number(r.id_pago) === Number(paramList[0]) &&
+            Number(r.id_usuario) === Number(paramList[1])
+        );
       } else if (trimmed.includes('WHERE id_lista = ? AND id_producto = ?')) {
         records = records.filter(
           (r) => r.id_lista === paramList[0] && r.id_producto === paramList[1]
@@ -361,6 +391,8 @@ class WebDatabaseAdapter implements DatabaseConnection {
         );
       } else if (trimmed.includes('WHERE id_compra = ?')) {
         records = records.filter((r) => Number(r.id_compra) === Number(paramList[0]));
+      } else if (trimmed.includes('WHERE id_presupuesto = ?')) {
+        records = records.filter((r) => Number(r.id_presupuesto) === Number(paramList[0]));
       } else if (trimmed.includes('WHERE id_producto = ? AND id_comercio = ?')) {
         records = records.filter(
           (r) => r.id_producto === paramList[0] && r.id_comercio === paramList[1]

@@ -1,4 +1,5 @@
 import { getDatabase } from '../database/database';
+import { syncRecordToSupabase } from '../database/syncService';
 import { Presupuesto } from '../types/database';
 
 export async function crearPresupuesto(
@@ -33,6 +34,16 @@ export async function crearPresupuesto(
     ]
   );
 
+  await syncRecordToSupabase('presupuestos', {
+    id_presupuesto: result.lastInsertRowId,
+    id_usuario,
+    nombre,
+    monto,
+    fecha_inicio,
+    fecha_fin,
+    pre_estado: 1,
+  }, 'id_presupuesto');
+
   return result.lastInsertRowId;
 }
 
@@ -41,14 +52,17 @@ export async function obtenerPresupuestos(
 ): Promise<Presupuesto[]> {
   const db = await getDatabase();
 
-  return await db.getAllAsync<Presupuesto>(
+  const budgets = await db.getAllAsync<Presupuesto>(
     `
     SELECT *
     FROM presupuestos
     WHERE id_usuario = ?
-    ORDER BY fecha_inicio DESC
     `,
     [id_usuario]
+  );
+  return budgets.sort((left, right) =>
+    right.fecha_inicio.localeCompare(left.fecha_inicio) ||
+    right.id_presupuesto - left.id_presupuesto
   );
 }
 
@@ -61,6 +75,10 @@ export async function actualizarPresupuesto(
   pre_estado: number
 ): Promise<void> {
   const db = await getDatabase();
+  const existing = await db.getFirstAsync<Presupuesto>(
+    'SELECT * FROM presupuestos WHERE id_presupuesto = ?',
+    [id_presupuesto]
+  );
 
   await db.runAsync(
     `
@@ -82,6 +100,17 @@ export async function actualizarPresupuesto(
       id_presupuesto
     ]
   );
+
+  if (existing) {
+    await syncRecordToSupabase('presupuestos', {
+      ...existing,
+      nombre,
+      monto,
+      fecha_inicio,
+      fecha_fin,
+      pre_estado,
+    }, 'id_presupuesto');
+  }
 }
 
 export async function eliminarPresupuesto(
