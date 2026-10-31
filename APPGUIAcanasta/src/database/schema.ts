@@ -117,6 +117,24 @@ CREATE TABLE IF NOT EXISTS detalles_lista_compra (
         ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS compras (
+    id_compra INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    id_lista INTEGER,
+    nombre_lista TEXT NOT NULL,
+    numero_factura TEXT NOT NULL UNIQUE,
+    fecha_compra TEXT NOT NULL,
+    subtotal REAL NOT NULL,
+    descuento REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL,
+    detalles_json TEXT NOT NULL,
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS detalles_presupuesto (
     id_detalle INTEGER PRIMARY KEY AUTOINCREMENT,
     id_presupuesto INTEGER NOT NULL,

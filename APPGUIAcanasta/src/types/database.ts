@@ -105,3 +105,40 @@ export interface DetalleFactura {
   descuento: number;
   subtotal: number;
 }
+
+export interface DetalleCompra {
+  id_producto: number;
+  id_comercio?: number | null;
+  nombre_producto: string;
+  unidad_medida: string;
+  cantidad: number;
+  nombre_comercio: string;
+  precio_original: number;
+  precio_unitario: number;
+  descuento_unitario: number;
+  porcentaje_descuento: number;
+  subtotal: number;
+}
+
+export interface Compra {
+  id_compra: number;
+  id_usuario: number;
+  id_lista: number | null;
+  nombre_lista: string;
+  numero_factura: string;
+  fecha_compra: string;
+  subtotal: number;
+  descuento: number;
+  total: number;
+  detalles_json: string;
+  detalles: DetalleCompra[];
+}
+
+export interface VentaComercio {
+  id_compra: number;
+  numero_factura: string;
+  fecha_compra: string;
+  nombre_lista: string;
+  total: number;
+  productos: DetalleCompra[];
+}

@@ -18,8 +18,11 @@ import {
   crearComercio,
   obtenerComercios,
   eliminarComercio,
+  actualizarComercio,
 } from '@/repositories/comercioRepository';
 import { obtenerUsuarios, eliminarUsuario } from '@/repositories/usuarioRepository';
+import { obtenerProductos } from '@/repositories/productoRepository';
+import { obtenerResumenComprasSistema } from '@/repositories/compraRepository';
 import {
   crearCategoria,
   obtenerCategorias,
@@ -39,9 +42,13 @@ export default function AdminScreen() {
   const [comercios, setComercios] = useState<Comercio[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [productosActivos, setProductosActivos] = useState(0);
+  const [comprasRegistradas, setComprasRegistradas] = useState({ cantidad: 0, total: 0 });
+  const [busqueda, setBusqueda] = useState('');
 
   // Modales
   const [modalComercio, setModalComercio] = useState(false);
+  const [comercioEnEdicion, setComercioEnEdicion] = useState<Comercio | null>(null);
   const [comNombre, setComNombre] = useState('');
   const [comDireccion, setComDireccion] = useState('');
   const [comTelefono, setComTelefono] = useState('');
@@ -65,14 +72,18 @@ export default function AdminScreen() {
     if (!isAdmin) return;
     try {
       setCargando(true);
-      const [coms, usus, cats] = await Promise.all([
+      const [coms, usus, cats, prods, resumenCompras] = await Promise.all([
         obtenerComercios(),
         obtenerUsuarios(),
         obtenerCategorias(),
+        obtenerProductos(),
+        obtenerResumenComprasSistema(),
       ]);
       setComercios(coms || []);
       setUsuarios(usus || []);
       setCategorias(cats || []);
+      setProductosActivos(prods.filter((product) => product.pro_estado === 1).length);
+      setComprasRegistradas(resumenCompras);
     } catch (e) {
       console.error(e);
       showToast('Error cargando información administrativa', 'error');
@@ -87,15 +98,19 @@ export default function AdminScreen() {
       (async () => {
         try {
           setCargando(true);
-          const [coms, usus, cats] = await Promise.all([
+          const [coms, usus, cats, prods, resumenCompras] = await Promise.all([
             obtenerComercios(),
             obtenerUsuarios(),
             obtenerCategorias(),
+            obtenerProductos(),
+            obtenerResumenComprasSistema(),
           ]);
           if (active) {
             setComercios(coms || []);
             setUsuarios(usus || []);
             setCategorias(cats || []);
+            setProductosActivos(prods.filter((product) => product.pro_estado === 1).length);
+            setComprasRegistradas(resumenCompras);
           }
         } catch (e) {
           console.error(e);
@@ -123,7 +138,7 @@ export default function AdminScreen() {
           </Text>
           <Text style={styles.restrictedHint}>
             {user
-              ? `Tu cuenta (${user.correo}) tiene perfil de Usuario.`
+              ? `Tu cuenta (${user.correo}) tiene perfil de ${user.rol === 'comercio' ? 'Comercio' : user.rol === 'admin' ? 'Administrador' : 'Usuario'}.`
               : 'Por favor inicia sesión con una cuenta de Administrador.'}
           </Text>
         </View>
@@ -132,20 +147,50 @@ export default function AdminScreen() {
   }
 
   // Acciones Comercios
-  const handleCrearComercio = async () => {
+  const abrirNuevoComercio = () => {
+    setComercioEnEdicion(null);
+    setComNombre('');
+    setComDireccion('');
+    setComTelefono('');
+    setComTipo('Supermercado');
+    setModalComercio(true);
+  };
+
+  const abrirEdicionComercio = (comercio: Comercio) => {
+    setComercioEnEdicion(comercio);
+    setComNombre(comercio.nombre);
+    setComDireccion(comercio.direccion ?? '');
+    setComTelefono(comercio.telefono ?? '');
+    setComTipo(comercio.tipo_comercio ?? '');
+    setModalComercio(true);
+  };
+
+  const handleGuardarComercio = async () => {
     if (!comNombre.trim()) {
       showToast('El nombre del comercio es requerido', 'error');
       return;
     }
     try {
       setGuardando(true);
-      await crearComercio(
-        comNombre.trim(),
-        comDireccion.trim() || undefined,
-        comTelefono.trim() || undefined,
-        comTipo.trim() || 'Supermercado'
-      );
-      showToast('Comercio agregado', 'success');
+      if (comercioEnEdicion) {
+        await actualizarComercio(
+          comercioEnEdicion.id_comercio,
+          comNombre.trim(),
+          comDireccion.trim() || undefined,
+          comTelefono.trim() || undefined,
+          comTipo.trim() || undefined
+        );
+        showToast('Datos del comercio actualizados', 'success');
+      } else {
+        await crearComercio(
+          comNombre.trim(),
+          comDireccion.trim() || undefined,
+          comTelefono.trim() || undefined,
+          comTipo.trim() || 'Supermercado'
+        );
+        showToast('Comercio agregado', 'success');
+      }
+      setComercioEnEdicion(null);
       setComNombre('');
       setComDireccion('');
       setComTelefono('');
@@ -153,11 +198,20 @@ export default function AdminScreen() {
       await cargarDatos();
     } catch (e) {
       console.error(e);
-      showToast('Error al crear el comercio', 'error');
+      showToast('Error al guardar los datos del comercio', 'error');
     } finally {
       setGuardando(false);
     }
   };
+
+  const query = busqueda.trim().toLocaleLowerCase();
+  const comerciosVisibles = comercios.filter((item) =>
+    `${item.nombre} ${item.tipo_comercio ?? ''} ${item.direccion ?? ''}`.toLocaleLowerCase().includes(query)
+  );
+  const usuariosVisibles = usuarios.filter((item) =>
+    `${item.nombre} ${item.apellido} ${item.correo} ${item.rol}`.toLocaleLowerCase().includes(query)
+  );
+  const categoriasVisibles = categorias.filter((item) => item.descripcion.toLocaleLowerCase().includes(query));
 
   const handleEliminarComercio = (c: Comercio) => {
     const doDelete = async () => {
@@ -269,15 +323,44 @@ export default function AdminScreen() {
 
       {/* Cabecera Admin */}
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerCopy}>
           <View style={styles.adminTitleRow}>
             <Ionicons name="shield-checkmark" size={24} color="#16a34a" />
             <Text style={styles.headerTitle}>Panel Administrativo</Text>
           </View>
           <Text style={styles.headerSubtitle}>
-            Gestión integral de usuarios, comercios y categorías
+            Usuarios, comercios, catálogo y actividad de compras
           </Text>
         </View>
+        <TouchableOpacity onPress={() => void cargarDatos()} disabled={cargando} style={styles.refreshButton} accessibilityRole="button" accessibilityLabel="Actualizar resumen administrativo">
+          <Ionicons name="refresh-outline" size={19} color="#166534" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        horizontal
+        style={styles.summaryScroll}
+        contentContainerStyle={styles.summaryStrip}
+        showsHorizontalScrollIndicator={false}>
+        <AdminMetric icon="storefront-outline" label="Comercios" value={comercios.length} tint="green" />
+        <AdminMetric icon="people-outline" label="Usuarios" value={usuarios.length} tint="blue" />
+        <AdminMetric icon="basket-outline" label="Productos activos" value={productosActivos} tint="amber" />
+        <AdminMetric icon="pricetags-outline" label="Categorías" value={categorias.length} tint="purple" />
+        <AdminMetric icon="receipt-outline" label="Compras registradas" value={comprasRegistradas.cantidad} tint="green" />
+        <AdminMetric icon="cash-outline" label="Valor de compras" value={`$${comprasRegistradas.total.toLocaleString('es-CO')}`} tint="blue" />
+      </ScrollView>
+
+      <View style={styles.searchBox}>
+        <Ionicons name="search-outline" size={18} color="#64748b" />
+        <TextInput
+          value={busqueda}
+          onChangeText={setBusqueda}
+          placeholder={`Buscar ${activeTab === 'comercios' ? 'comercios' : activeTab === 'usuarios' ? 'usuarios' : 'categorías'}`}
+          placeholderTextColor="#94a3b8"
+          style={styles.searchInput}
+          returnKeyType="search"
+        />
+        {busqueda ? <TouchableOpacity onPress={() => setBusqueda('')} accessibilityRole="button" accessibilityLabel="Limpiar búsqueda"><Ionicons name="close-circle" size={18} color="#94a3b8" /></TouchableOpacity> : null}
       </View>
 
       {/* Selector de Pestañas */}
@@ -345,17 +428,17 @@ export default function AdminScreen() {
                 <Text style={styles.sectionTitle}>Comercios Afiliados</Text>
                 <TouchableOpacity
                   style={styles.actionBtn}
-                  onPress={() => setModalComercio(true)}
+                  onPress={abrirNuevoComercio}
                 >
                   <Ionicons name="add" size={18} color="#fff" />
                   <Text style={styles.actionBtnText}>Nuevo Comercio</Text>
                 </TouchableOpacity>
               </View>
 
-              {comercios.length === 0 ? (
-                <Text style={styles.emptyNotice}>No hay comercios registrados.</Text>
+              {comerciosVisibles.length === 0 ? (
+                <Text style={styles.emptyNotice}>{query ? 'No encontramos comercios con esa búsqueda.' : 'No hay comercios registrados.'}</Text>
               ) : (
-                comercios.map((c) => (
+                comerciosVisibles.map((c) => (
                   <View key={c.id_comercio} style={styles.itemCard}>
                     <View style={styles.itemIconWrapper}>
                       <Ionicons name="storefront" size={22} color="#16a34a" />
@@ -372,12 +455,14 @@ export default function AdminScreen() {
                         <Text style={styles.itemDetail}>📞 {c.telefono}</Text>
                       )}
                     </View>
-                    <TouchableOpacity
-                      onPress={() => handleEliminarComercio(c)}
-                      style={styles.itemDeleteBtn}
-                    >
-                      <Ionicons name="trash-outline" size={19} color="#dc2626" />
-                    </TouchableOpacity>
+                    <View style={styles.itemActions}>
+                      <TouchableOpacity onPress={() => abrirEdicionComercio(c)} style={styles.itemEditBtn} accessibilityRole="button" accessibilityLabel={`Editar ${c.nombre}`}>
+                        <Ionicons name="create-outline" size={19} color="#166534" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleEliminarComercio(c)} style={styles.itemDeleteBtn} accessibilityRole="button" accessibilityLabel={`Dar de baja ${c.nombre}`}>
+                        <Ionicons name="trash-outline" size={19} color="#dc2626" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))
               )}
@@ -391,10 +476,10 @@ export default function AdminScreen() {
                 <Text style={styles.sectionTitle}>Usuarios del Sistema</Text>
               </View>
 
-              {usuarios.length === 0 ? (
-                <Text style={styles.emptyNotice}>No hay usuarios activos.</Text>
+              {usuariosVisibles.length === 0 ? (
+                <Text style={styles.emptyNotice}>{query ? 'No encontramos usuarios con esa búsqueda.' : 'No hay usuarios activos.'}</Text>
               ) : (
-                usuarios.map((u) => {
+                usuariosVisibles.map((u) => {
                   const esAdmin = u.rol === 'admin';
                   const esComercio = u.rol === 'comercio';
                   const comAsociado = comercios.find((c) => c.id_comercio === u.id_comercio);
@@ -501,10 +586,10 @@ export default function AdminScreen() {
                 </TouchableOpacity>
               </View>
 
-              {categorias.length === 0 ? (
-                <Text style={styles.emptyNotice}>No hay categorías registradas.</Text>
+              {categoriasVisibles.length === 0 ? (
+                <Text style={styles.emptyNotice}>{query ? 'No encontramos categorías con esa búsqueda.' : 'No hay categorías registradas.'}</Text>
               ) : (
-                categorias.map((cat) => (
+                categoriasVisibles.map((cat) => (
                   <View key={cat.id_categoria} style={styles.itemCard}>
                     <View style={styles.itemIconWrapper}>
                       <Ionicons name="pricetag" size={22} color="#16a34a" />
@@ -537,7 +622,7 @@ export default function AdminScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Registrar Comercio</Text>
+              <Text style={styles.modalTitle}>{comercioEnEdicion ? 'Editar Comercio' : 'Registrar Comercio'}</Text>
               <TouchableOpacity onPress={() => setModalComercio(false)}>
                 <Ionicons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
@@ -587,13 +672,13 @@ export default function AdminScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.saveButton}
-                onPress={handleCrearComercio}
+                onPress={handleGuardarComercio}
                 disabled={guardando}
               >
                 {guardando ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.saveButtonText}>Guardar</Text>
+                  <Text style={styles.saveButtonText}>{comercioEnEdicion ? 'Guardar cambios' : 'Guardar'}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -651,16 +736,48 @@ export default function AdminScreen() {
   );
 }
 
+function AdminMetric({
+  icon,
+  label,
+  value,
+  tint,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string | number;
+  tint: 'green' | 'blue' | 'amber' | 'purple';
+}) {
+  const background = tint === 'blue'
+    ? styles.metricIcon_blue
+    : tint === 'amber'
+      ? styles.metricIcon_amber
+      : tint === 'purple'
+        ? styles.metricIcon_purple
+        : styles.metricIcon_green;
+  const color = tint === 'blue' ? '#0369a1' : tint === 'amber' ? '#b45309' : tint === 'purple' ? '#7e22ce' : '#15803d';
+  return (
+    <View style={styles.metricCard}>
+      <View style={[styles.metricIcon, background]}><Ionicons name={icon} size={17} color={color} /></View>
+      <Text style={styles.metricValue} numberOfLines={1}>{value}</Text>
+      <Text style={styles.metricLabel} numberOfLines={1}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f0fdf4',
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 24,
     paddingBottom: 12,
   },
+  headerCopy: { flex: 1 },
+  refreshButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#dcfce7' },
   adminTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -676,6 +793,18 @@ const styles = StyleSheet.create({
     color: '#16a34a',
     marginTop: 2,
   },
+  summaryScroll: { height: 116, flexGrow: 0, flexShrink: 0, marginBottom: 2 },
+  summaryStrip: { minHeight: 116, alignItems: 'center', gap: 9, paddingHorizontal: 20 },
+  metricCard: { width: 112, height: 100, padding: 11, borderRadius: 15, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcfce7', gap: 5 },
+  metricIcon: { width: 29, height: 29, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
+  metricIcon_green: { backgroundColor: '#dcfce7' },
+  metricIcon_blue: { backgroundColor: '#e0f2fe' },
+  metricIcon_amber: { backgroundColor: '#fef3c7' },
+  metricIcon_purple: { backgroundColor: '#f3e8ff' },
+  metricValue: { color: '#14532d', fontSize: 16, fontWeight: '800' },
+  metricLabel: { color: '#64748b', fontSize: 9, fontWeight: '600' },
+  searchBox: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: 11, paddingHorizontal: 12, borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 12, backgroundColor: '#ffffff' },
+  searchInput: { flex: 1, minHeight: 40, color: '#0f172a', fontSize: 12 },
   tabsNav: {
     flexDirection: 'row',
     backgroundColor: '#ffffff',
@@ -833,6 +962,8 @@ const styles = StyleSheet.create({
   itemDeleteBtn: {
     padding: 8,
   },
+  itemActions: { flexDirection: 'row', alignItems: 'center' },
+  itemEditBtn: { padding: 8 },
   // Modal styles
   modalOverlay: {
     flex: 1,

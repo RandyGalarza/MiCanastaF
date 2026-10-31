@@ -70,6 +70,9 @@ class WebDatabaseAdapter implements DatabaseConnection {
     this.tables.precios?.forEach((precio) => {
       precio.disponible ??= 1;
     });
+    this.tables.detalles_lista_compra?.forEach((detalle) => {
+      detalle.comprado ??= 0;
+    });
   }
 
   private saveToStorage() {
@@ -136,6 +139,7 @@ class WebDatabaseAdapter implements DatabaseConnection {
         precios: 'id_precio',
         listas_compra: 'id_lista',
         detalles_lista_compra: 'id_detalle',
+        compras: 'id_compra',
         detalles_presupuesto: 'id_detalle',
         facturas: 'id_factura',
         detalles_factura: 'id_detalle_factura',
@@ -300,8 +304,24 @@ class WebDatabaseAdapter implements DatabaseConnection {
         .filter((detail) => detail.id_lista === listId)
         .map((detail) => {
           const product = (this.tables.productos || []).find((item) => item.id_producto === detail.id_producto);
-          const price = (this.tables.precios || []).find((item) => item.id_producto === detail.id_producto && (item.disponible ?? 1) === 1);
-          return { ...detail, nombre: product?.nombre, unidad_medida: product?.unidad_medida, precio: price?.precio ?? null };
+          const price = (this.tables.precios || [])
+            .filter((item) =>
+              Number(item.id_producto) === Number(detail.id_producto) &&
+              Number(item.disponible ?? 1) === 1 &&
+              Number(item.precio) > 0
+            )
+            .sort((left, right) => Number(left.precio) - Number(right.precio))[0];
+          const commerce = (this.tables.comercios || []).find(
+            (item) => Number(item.id_comercio) === Number(price?.id_comercio ?? product?.id_comercio)
+          );
+          return {
+            ...detail,
+            nombre: product?.nombre,
+            unidad_medida: product?.unidad_medida,
+            precio: price?.precio ?? null,
+            id_comercio: price?.id_comercio ?? product?.id_comercio ?? null,
+            nombre_comercio: commerce?.nombre ?? null,
+          };
         });
       return details as T[];
     }
@@ -334,6 +354,13 @@ class WebDatabaseAdapter implements DatabaseConnection {
         );
       } else if (trimmed.includes('WHERE id_lista = ?')) {
         records = records.filter((r) => r.id_lista === paramList[0]);
+      } else if (trimmed.includes('WHERE id_compra = ? AND id_usuario = ?')) {
+        records = records.filter((r) =>
+          Number(r.id_compra) === Number(paramList[0]) &&
+          Number(r.id_usuario) === Number(paramList[1])
+        );
+      } else if (trimmed.includes('WHERE id_compra = ?')) {
+        records = records.filter((r) => Number(r.id_compra) === Number(paramList[0]));
       } else if (trimmed.includes('WHERE id_producto = ? AND id_comercio = ?')) {
         records = records.filter(
           (r) => r.id_producto === paramList[0] && r.id_comercio === paramList[1]

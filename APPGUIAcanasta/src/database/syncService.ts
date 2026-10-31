@@ -67,6 +67,22 @@ const SYNC_TABLES: { name: string; pk: string; allowedColumns: string[] }[] = [
     allowedColumns: ['id_detalle', 'id_lista', 'id_producto', 'cantidad', 'comprado'],
   },
   {
+    name: 'compras',
+    pk: 'id_compra',
+    allowedColumns: [
+      'id_compra',
+      'id_usuario',
+      'id_lista',
+      'nombre_lista',
+      'numero_factura',
+      'fecha_compra',
+      'subtotal',
+      'descuento',
+      'total',
+      'detalles_json',
+    ],
+  },
+  {
     name: 'detalles_presupuesto',
     pk: 'id_detalle',
     allowedColumns: ['id_detalle', 'id_presupuesto', 'id_producto'],
@@ -120,21 +136,33 @@ function sanitizeRow(row: Record<string, any>, allowed: string[]): Record<string
   if (allowed.includes('disponible') && clean.disponible == null) {
     delete clean.disponible;
   }
+  if (allowed.includes('comprado') && clean.comprado == null) {
+    clean.comprado = 0;
+  }
 
   return clean;
+}
+
+function logSyncError(direction: 'Pull' | 'Push' | 'Realtime', table: string, message: string) {
+  const setupHint = table === 'compras' && /PGRST205|schema cache|could not find the table/i.test(message)
+    ? ' Ejecuta el bloque actualizado de supabase_schema.sql en el SQL Editor de Supabase.'
+    : '';
+  console.warn(`[Sync ${direction}] Supabase tabla '${table}': ${message}${setupHint}`);
 }
 
 /**
  * 1. Descarga los registros más recientes de Supabase a la base local (SQLite / Web adapter)
  */
-export async function pullFromSupabase(): Promise<void> {
+export async function pullFromSupabase(): Promise<boolean> {
   const db = await getDatabase();
+  let successful = true;
 
   for (const { name, pk, allowedColumns } of SYNC_TABLES) {
     try {
       const { data, error } = await supabase.from(name).select('*');
       if (error) {
-        console.warn(`[Sync Pull] Supabase tabla '${name}':`, error.message);
+        logSyncError('Pull', name, error.message);
+        successful = false;
         continue;
       }
 
@@ -169,15 +197,18 @@ export async function pullFromSupabase(): Promise<void> {
       }
     } catch (err) {
       console.warn(`[Sync Pull] Error procesando '${name}':`, err);
+      successful = false;
     }
   }
+  return successful;
 }
 
 /**
  * 2. Sube los registros locales a Supabase (Upsert en la nube limpio y tipado)
  */
-export async function pushToSupabase(): Promise<void> {
+export async function pushToSupabase(): Promise<boolean> {
   const db = await getDatabase();
+  let successful = true;
 
   for (const { name, pk, allowedColumns } of SYNC_TABLES) {
     try {
@@ -189,13 +220,16 @@ export async function pushToSupabase(): Promise<void> {
           .upsert(cleanRows, { onConflict: pk });
 
         if (error) {
-          console.warn(`[Sync Push] Error subiendo '${name}':`, error.message);
+          logSyncError('Push', name, error.message);
+          successful = false;
         }
       }
     } catch (err) {
       console.warn(`[Sync Push] Error leyendo '${name}' local:`, err);
+      successful = false;
     }
   }
+  return successful;
 }
 
 /**
@@ -204,9 +238,13 @@ export async function pushToSupabase(): Promise<void> {
 export async function syncDatabase(): Promise<boolean> {
   try {
     // 1. Descargamos lo más reciente de Supabase a la base local
-    await pullFromSupabase();
+    const pulled = await pullFromSupabase();
     // 2. Subimos cambios locales limpios a Supabase
-    await pushToSupabase();
+    const pushed = await pushToSupabase();
+    if (!pulled || !pushed) {
+      console.warn('⚠️ Sincronización incompleta: revisa los errores de tablas anteriores y aplica el esquema pendiente de Supabase.');
+      return false;
+    }
     console.log('✅ Sincronización con Supabase completada sin errores.');
     return true;
   } catch (error) {
@@ -232,7 +270,7 @@ export async function syncRecordToSupabase(
       .upsert(clean, { onConflict: pkName });
 
     if (error) {
-      console.warn(`[Sync Realtime] Error sincronizando ${tableName}:`, error.message);
+      logSyncError('Realtime', tableName, error.message);
     }
   } catch (err) {
     console.warn(`[Sync Realtime] Error en ${tableName}:`, err);

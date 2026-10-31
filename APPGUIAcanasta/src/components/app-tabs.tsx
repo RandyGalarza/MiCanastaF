@@ -22,7 +22,7 @@ const TAB_ICONS = {
 
 export default function AppTabs() {
   const insets = useSafeAreaInsets();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isComercio } = useAuth();
 
   return (
     <Tabs>
@@ -42,7 +42,9 @@ export default function AppTabs() {
             <TabButton label="Chat IA" icon={TAB_ICONS.chat} />
           </TabTrigger>
           <TabTrigger name="budget" href="/presupuesto" asChild>
-            <Pressable style={styles.hiddenTabTrigger} />
+            {isComercio
+              ? <TabButton label="Ventas" icon={TAB_ICONS.budget} />
+              : <Pressable style={styles.hiddenTabTrigger} />}
           </TabTrigger>
           {isAdmin && (
             <TabTrigger name="admin" href={'/admin' as any} asChild>

@@ -1,8 +1,12 @@
 import { getDatabase } from '../database/database';
-import { DetalleListaCompra, ListaCompra } from '../types/database';
-import { Producto } from '../types/database';
+import { DetalleListaCompra, ListaCompra, Producto } from '../types/database';
 
-export type ItemListaCompra = DetalleListaCompra & Pick<Producto, 'nombre' | 'unidad_medida'> & { precio?: number | null };
+export type ItemListaCompra = DetalleListaCompra &
+  Pick<Producto, 'nombre' | 'unidad_medida'> & {
+    precio?: number | null;
+    id_comercio?: number | null;
+    nombre_comercio?: string | null;
+  };
 
 export async function obtenerListasCompra(id_usuario: number): Promise<ListaCompra[]> {
   const db = await getDatabase();
@@ -27,10 +31,20 @@ export async function eliminarListaCompra(id_lista: number): Promise<void> {
 export async function obtenerItemsLista(id_lista: number): Promise<ItemListaCompra[]> {
   const db = await getDatabase();
   return db.getAllAsync<ItemListaCompra>(
-    `SELECT d.*, p.nombre, p.unidad_medida, pr.precio
+    `SELECT d.*, p.nombre, p.unidad_medida, pr.precio,
+            COALESCE(pr.id_comercio, p.id_comercio) AS id_comercio,
+            COALESCE(c.nombre, pc.nombre) AS nombre_comercio
      FROM detalles_lista_compra d
      JOIN productos p ON p.id_producto = d.id_producto
-     LEFT JOIN precios pr ON pr.id_producto = p.id_producto AND pr.disponible = 1
+     LEFT JOIN precios pr ON pr.id_precio = (
+       SELECT p2.id_precio
+       FROM precios p2
+       WHERE p2.id_producto = p.id_producto AND p2.disponible = 1 AND p2.precio > 0
+       ORDER BY p2.precio ASC
+       LIMIT 1
+     )
+     LEFT JOIN comercios c ON c.id_comercio = pr.id_comercio
+     LEFT JOIN comercios pc ON pc.id_comercio = p.id_comercio
      WHERE d.id_lista = ? ORDER BY p.nombre ASC`,
     [id_lista]
   );

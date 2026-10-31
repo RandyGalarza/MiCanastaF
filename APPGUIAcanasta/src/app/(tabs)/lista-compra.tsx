@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Link, useFocusEffect } from 'expo-router';
+import { Link, router, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 import { agregarProductoALista, actualizarCantidadItem, crearListaCompra, eliminarListaCompra, marcarItemComprado, obtenerItemsLista, obtenerListasCompra, ItemListaCompra } from '@/repositories/listacompraRepository';
+import { registrarCompra } from '@/repositories/compraRepository';
 import { obtenerProductos } from '@/repositories/productoRepository';
 import { ListaCompra, Producto } from '@/types/database';
 import { displayPrice, getDemoDiscount } from '@/utils/demo-prices';
@@ -53,7 +54,6 @@ export default function ListaCompraScreen() {
     }
   }, [user, selectedListId]);
 
-  useEffect(() => { void loadLists(); }, [loadLists]);
   useFocusEffect(useCallback(() => { void loadLists(); }, [loadLists]));
 
   const selectList = async (listId: number) => {
@@ -112,6 +112,23 @@ export default function ListaCompraScreen() {
     }
   };
 
+  const purchaseCheckedItems = async () => {
+    if (!user || selectedListId === null || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      const selectedList = lists.find((list) => list.id_lista === selectedListId);
+      if (!selectedList) throw new Error('Selecciona una lista válida para registrar la compra.');
+      const purchaseId = await registrarCompra(user.id_usuario, selectedListId, selectedList.nombre, items);
+      router.push({ pathname: '/factura/[id]', params: { id: String(purchaseId) } });
+    } catch (err) {
+      console.error('No se pudo registrar la compra:', err);
+      setError(err instanceof Error ? err.message : 'No se pudo registrar la compra.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const removeCurrentList = async () => {
     if (selectedListId === null || lists.length < 2) return;
     try {
@@ -156,6 +173,10 @@ export default function ListaCompraScreen() {
           <Text style={styles.headingTitle}>Lista de compra</Text>
           <Text style={styles.mutedText}>Tus listas guardadas en tu cuenta</Text>
         </View>
+        <Pressable onPress={() => router.push('/historial-compras')} style={styles.historyButton} accessibilityRole="button">
+          <Ionicons name="receipt-outline" size={17} color="#166534" />
+          <Text style={styles.historyButtonText}>Historial</Text>
+        </Pressable>
       </View>
 
       <View style={styles.createCard}>
@@ -208,7 +229,7 @@ export default function ListaCompraScreen() {
                 </Pressable>
                 <View style={styles.itemCopy}>
                   <Text style={[styles.itemName, item.comprado === 1 && styles.itemPurchased]}>{item.nombre}</Text>
-                  <Text style={styles.itemDetail}>{currency((displayPrice(item.nombre, item.precio) || 0) * Number(item.cantidad))} · {item.unidad_medida}</Text>
+                  <Text style={styles.itemDetail}>{displayPrice(item.nombre, item.precio) === null ? 'Precio por consultar' : currency((displayPrice(item.nombre, item.precio) || 0) * Number(item.cantidad))} · {item.unidad_medida}{item.nombre_comercio ? ` · ${item.nombre_comercio}` : ''}</Text>
                 </View>
                 <View style={styles.quantityControl}>
                   <Pressable onPress={() => void updateItem(item, { quantity: Number(item.cantidad) - 1 })} style={styles.quantityButton}><Ionicons name="remove" size={16} color="#166534" /></Pressable>
@@ -218,6 +239,16 @@ export default function ListaCompraScreen() {
               </View>
             ))}
             <View style={styles.totalRow}><Ionicons name="calculator-outline" size={18} color="#15803d" /><Text style={styles.totalLabel}>Estimado según precios disponibles</Text><Text style={styles.totalValue}>{currency(total)}</Text></View>
+            <Pressable
+              onPress={() => void purchaseCheckedItems()}
+              disabled={checkedCount === 0 || saving}
+              style={[styles.purchaseButton, (checkedCount === 0 || saving) && styles.disabledButton]}
+              accessibilityRole="button"
+              accessibilityLabel={`Registrar compra de ${checkedCount} productos marcados`}>
+              {saving ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="receipt-outline" size={18} color="#ffffff" />}
+              <Text style={styles.purchaseButtonText}>{saving ? 'Registrando compra…' : `Registrar compra (${checkedCount})`}</Text>
+            </Pressable>
+            <Text style={styles.purchaseHint}>Se incluirán solo los productos marcados y el precio de referencia del catálogo.</Text>
           </View>
 
           <View style={styles.catalogHeader}>
@@ -256,6 +287,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
   headerCopy: { flex: 1 },
+  historyButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 9, borderRadius: 11, backgroundColor: '#dcfce7' },
+  historyButtonText: { color: '#166534', fontSize: 11, fontWeight: '700' },
   headingTitle: { color: '#14532d', fontSize: 23, fontWeight: '800' },
   mutedText: { color: '#64748b', fontSize: 12, lineHeight: 18 },
   createCard: { padding: 14, backgroundColor: '#ffffff', borderRadius: 16, borderWidth: 1, borderColor: '#dcfce7', gap: 10 },
@@ -298,6 +331,9 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', alignItems: 'center', gap: 7, borderTopWidth: 1, borderTopColor: '#e2e8f0', paddingTop: 13, marginTop: 3 },
   totalLabel: { flex: 1, color: '#64748b', fontSize: 10 },
   totalValue: { color: '#15803d', fontSize: 13, fontWeight: '800' },
+  purchaseButton: { minHeight: 46, marginTop: 13, borderRadius: 12, backgroundColor: '#16a34a', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  purchaseButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
+  purchaseHint: { color: '#64748b', fontSize: 10, textAlign: 'center', lineHeight: 15, marginTop: 7 },
   catalogHeader: { marginTop: 4 },
   catalogSubtitle: { color: '#64748b', fontSize: 11, marginTop: 3 },
   searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 42, paddingHorizontal: 12, borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 12, backgroundColor: '#ffffff' },
