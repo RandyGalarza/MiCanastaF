@@ -3,9 +3,19 @@ import {
   COMMERCIAL_REFERENCE_DIVISIONS,
   COMMERCIAL_REFERENCE_PRODUCTS,
 } from './commercial-reference-products';
+import { getVerifiedProductImage } from '@/utils/product-images';
 
 const LEGACY_DANE_DESCRIPTION_PREFIX = 'Artículo de seguimiento del IPC DANE 2018; código COICOP: ';
 const COMMERCIAL_REFERENCE_DESCRIPTION_PREFIX = 'Producto de referencia comercial orientativo; código COICOP IPC 2018: ';
+
+const PRODUCTOS_REFERENCIA_CANASTA = COMMERCIAL_REFERENCE_PRODUCTS.filter((producto) =>
+  producto.division === '01' ? esProductoComestibleOCocina(producto.name) :
+    producto.division === '05' && esUtensilioOCocina(producto.name)
+);
+
+function nombreCategoriaReferencia(division: string): string {
+  return division === '05' ? 'Utensilios y equipos de cocina' : 'Alimentos de la canasta familiar';
+}
 
 export async function seedDatabase() {
   const db = await getDatabase();
@@ -19,14 +29,15 @@ export async function seedDatabase() {
     'Víveres, Despensa y Abarrotes',
     'Panadería y Desayuno',
     'Bebidas y Cafés',
-    'Aseo Personal y del Hogar',
+    'Aseo del Hogar y Cocina',
     'Congelados y Refrigerados',
-    'Cuidado del Bebé',
-    'Mascotas',
+    'Alimentos Infantiles',
+    'Alimentos varios',
     'Snacks y Confitería',
     'Condimentos y Especias',
     'Conservas y Enlatados',
-    ...COMMERCIAL_REFERENCE_DIVISIONS.map(({ code, name }) => `Catálogo orientativo ${code} - ${name}`),
+    'Alimentos de la canasta familiar',
+    'Utensilios y equipos de cocina',
   ];
 
   for (const cat of categoriasDemo) {
@@ -361,7 +372,14 @@ export async function seedDatabase() {
 
   const preciosLocales = await db.getAllAsync<any>('SELECT * FROM precios');
 
-  for (const [categoriaIndex, comercioIndex, nombre, unidad, marca, desc, precio] of productosRiohacha) {
+  const productosRiohachaCanasta = productosRiohacha.filter(([categoria, , nombre]) => {
+    if ([1, 2, 3, 4, 5, 6, 7, 9, 12, 13, 14].includes(categoria)) return true;
+    if (categoria === 8) return esProductoAseoOCocina(nombre);
+    if (categoria === 10) return esAlimentoInfantil(nombre);
+    return false;
+  });
+
+  for (const [categoriaIndex, comercioIndex, nombre, unidad, marca, desc, precio] of productosRiohachaCanasta) {
     const categoriaNombre = categoriasDemo[categoriaIndex - 1];
     const comercioNombre = comerciosDemo[comercioIndex - 1]?.[0];
     const idCat = categoriaNombre ? categoriaIdPorNombre.get(categoriaNombre) : undefined;
@@ -371,7 +389,7 @@ export async function seedDatabase() {
     }
 
     const existing = await db.getFirstAsync<any>(
-      'SELECT id_producto FROM productos WHERE nombre = ? AND id_comercio = ?',
+      'SELECT id_producto, marca, descripcion FROM productos WHERE nombre = ? AND id_comercio = ?',
       [nombre, idCom]
     );
 
@@ -385,6 +403,17 @@ export async function seedDatabase() {
       prodId = res.lastInsertRowId;
     } else {
       prodId = existing.id_producto;
+      const marcaGuardada = String(existing.marca ?? '').trim();
+      const descripcionGuardada = String(existing.descripcion ?? '').trim();
+      await db.runAsync(
+        'UPDATE productos SET id_categoria = ?, marca = ?, descripcion = ? WHERE id_producto = ?',
+        [
+          idCat,
+          !marcaGuardada || /^demo$/i.test(marcaGuardada) ? marca : marcaGuardada,
+          descripcionGuardada || desc,
+          prodId,
+        ]
+      );
     }
 
     // Registrar precio de referencia
@@ -422,7 +451,7 @@ export async function seedDatabase() {
   );
   const productosReferenciaPorCodigo = new Map<string, number>();
   const codigosReferenciaActivos = new Set<string>(
-    COMMERCIAL_REFERENCE_PRODUCTS.map((articulo) => articulo.code)
+    PRODUCTOS_REFERENCIA_CANASTA.map((articulo) => articulo.code)
   );
 
   for (const producto of productosExistentes) {
@@ -445,10 +474,10 @@ export async function seedDatabase() {
     }
   }
 
-  for (const articulo of COMMERCIAL_REFERENCE_PRODUCTS) {
+  for (const articulo of PRODUCTOS_REFERENCIA_CANASTA) {
     const division = COMMERCIAL_REFERENCE_DIVISIONS.find(({ code }) => code === articulo.division);
     const idCategoria = division
-      ? categoriaIdPorNombre.get(`Catálogo orientativo ${division.code} - ${division.name}`)
+      ? categoriaIdPorNombre.get(nombreCategoriaReferencia(division.code))
       : undefined;
     if (idCategoria === undefined) {
       throw new Error(`No se pudo asociar el producto de referencia ${articulo.code} a su división.`);
@@ -459,18 +488,114 @@ export async function seedDatabase() {
     if (idProducto !== undefined) {
       await db.runAsync(
         `UPDATE productos
-         SET id_categoria = ?, id_comercio = ?, nombre = ?, descripcion = ?, unidad_medida = ?, pro_estado = ?
+         SET id_categoria = ?, id_comercio = ?, nombre = ?, descripcion = ?, unidad_medida = ?, marca = ?, pro_estado = ?
          WHERE id_producto = ?`,
-        [idCategoria, null, articulo.name, descripcion, 'Unidad', 1, idProducto]
+        [idCategoria, null, articulo.name, descripcion, 'Unidad', 'No aplica', 1, idProducto]
       );
     } else {
       await db.runAsync(
-        `INSERT INTO productos (id_categoria, id_comercio, nombre, descripcion, unidad_medida, pro_estado)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [idCategoria, null, articulo.name, descripcion, 'Unidad', 1]
+        `INSERT INTO productos (id_categoria, id_comercio, nombre, descripcion, unidad_medida, marca, pro_estado)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [idCategoria, null, articulo.name, descripcion, 'Unidad', 'No aplica', 1]
       );
     }
   }
 
-  console.log('✅ Base local poblada con comercios demo y 419 productos de referencia comercial.');
+  // Desactivar productos antiguos fuera del alcance sin borrar sus referencias históricas.
+  const productosParaDepurar = await db.getAllAsync<{ id_producto: number; nombre: string; descripcion: string | null }>(
+    'SELECT id_producto, nombre, descripcion FROM productos WHERE pro_estado = 1'
+  );
+  for (const producto of productosParaDepurar) {
+    const descripcion = producto.descripcion ?? '';
+    const esReferenciaIPC = descripcion.startsWith(LEGACY_DANE_DESCRIPTION_PREFIX) ||
+      descripcion.startsWith(COMMERCIAL_REFERENCE_DESCRIPTION_PREFIX);
+    if (!esReferenciaIPC && !esProductoComestibleOCocina(producto.nombre) &&
+      !esProductoAseoOCocina(producto.nombre) && !esUtensilioOCocina(producto.nombre) &&
+      !esAlimentoInfantil(producto.nombre)) {
+      await db.runAsync('UPDATE productos SET pro_estado = 0 WHERE id_producto = ?', [producto.id_producto]);
+    }
+  }
+
+  // Completar marcas e imágenes ilustrativas de referencias DANE antiguas y de datos importados.
+  const catalogo = await db.getAllAsync<{ id_producto: number; nombre: string; marca: string | null; imagen_url: string | null }>(
+    'SELECT id_producto, nombre, marca, imagen_url FROM productos WHERE pro_estado = 1'
+  );
+  for (const producto of catalogo) {
+    const marca = sugerirMarcaColombiana(producto.nombre, producto.marca);
+    const imagenActual = producto.imagen_url?.trim();
+    const imagenVerificada = getVerifiedProductImage(producto.nombre, marca);
+    // Las ilustraciones de catálogo son locales. Se conservan las fotos agregadas por el comercio.
+    const esImagenGenericaAnterior = !imagenActual ||
+      imagenActual.startsWith('https://picsum.photos/') ||
+      imagenActual.startsWith('https://images.unsplash.com/');
+    const imagen = imagenVerificada || (esImagenGenericaAnterior
+      ? `catalogo:${producto.id_producto}:${producto.nombre}`
+      : imagenActual);
+    if (marca !== producto.marca || imagen !== producto.imagen_url) {
+      await db.runAsync(
+        'UPDATE productos SET marca = ?, imagen_url = ? WHERE id_producto = ?',
+        [marca, imagen, producto.id_producto]
+      );
+    }
+  }
+
+  console.log('✅ Catálogo local depurado a alimentos, aseo del hogar y cocina.');
 }
+
+function normalizarNombreProducto(nombre: string): string {
+  return nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function esProductoComestibleOCocina(nombre: string): boolean {
+  return /(arroz|pasta|fideo|avena|harina|maiz|pan\b|arepa|galleta|brownie|carne|res\b|cerdo|pollo|viscera|higado|tocino|pescado|atun|sardina|marisco|camaron|mortadela|salchicha|jamon|chorizo|salchichon|leche|lactea|queso|mozzarella|huevo|crema de leche|yog|kumis|suero|mantequilla|margarina|manteca vegetal|fruta|naranja|banano|tomate|mora|limon|mandarina|manzana|mango|guayaba|maracuya|lulo|pina|papaya|uva|fresa|aguacate|mani|frijol|lenteja|garbanzo|arveja|platano|papa|yuca|arracacha|name|cebolla|ajo|lechuga|habichuela|revuelto verde|ahuyama|azucar|panela|mermelada|aceite|vinagre|cereal|gelatina|miel|salsa|caldo|coco|cafe|chocolate|te\b|infusion|agua\b|jugo|gaseosa|malta|refresco|pulpa|helado|empanada|nugget|hamburguesa|congelad|condimento|comino|pimienta|oregano|canela|snack|papas fritas|gomita|frutos secos|conserva|champinon|durazno)/.test(normalizarNombreProducto(nombre));
+}
+
+function esProductoAseoOCocina(nombre: string): boolean {
+  return /(detergente|suavizante|lavaloza|lavaplatos|esponja|bolsa para basura|limpiador|desinfectante|cloro|jabon azul|toallas de cocina|papel de cocina)/.test(normalizarNombreProducto(nombre));
+}
+
+function esUtensilioOCocina(nombre: string): boolean {
+  return /(estufa|horno microondas|licuadora|arrocera|ollas?|sarten)/.test(normalizarNombreProducto(nombre));
+}
+
+function esAlimentoInfantil(nombre: string): boolean {
+  return /(formula infantil|cereal infantil|alimento infantil)/.test(normalizarNombreProducto(nombre));
+}
+
+function sugerirMarcaColombiana(nombre: string, marcaActual: string | null): string {
+  const actual = marcaActual?.trim();
+  if (actual && !/^(demo|no aplica|gen[eé]rico)$/i.test(actual)) return actual;
+  const texto = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/aceite/.test(texto)) return /oliva/.test(texto) ? 'Gourmet' : 'Diana';
+  if (/arroz|frijol|lenteja|garbanzo|arveja seca/.test(texto)) return 'Diana';
+  if (/pasta|espagueti|lasana/.test(texto)) return 'Doria';
+  if (/leche|yogur|kumis|queso|mantequilla|crema de leche|bebida lactea/.test(texto)) return 'Alpina';
+  if (/atun|sardina|conserva|maiz dulce|arvejas en lata/.test(texto)) return 'Van Camp’s';
+  if (/cafe/.test(texto)) return 'Sello Rojo';
+  if (/gaseosa|malta/.test(texto)) return 'Postobón';
+  if (/agua/.test(texto)) return 'Cristal';
+  if (/pan|arepa|galleta|tostada/.test(texto)) return 'Bimbo';
+  if (/detergente/.test(texto)) return 'Ariel';
+  if (/lavaloza|lavaplatos|limpiador|desinfectante|cloro/.test(texto)) return 'Fabuloso';
+  if (/jab[oó]n/.test(texto)) return 'Protex';
+  if (/dental|cepillo/.test(texto)) return 'Colgate';
+  if (/papel|toalla/.test(texto)) return 'Familia';
+  if (/shampoo|acondicionador|desodorante/.test(texto)) return 'Dove';
+  if (/pañal|panal|toallita|formula infantil|cereal infantil/.test(texto)) return 'Huggies';
+  if (/perro|gato|mascota/.test(texto)) return 'Purina';
+  if (/mayonesa|salsa de tomate|salsa bbq/.test(texto)) return 'Fruco';
+  if (/vinagre|aceituna|aceite/.test(texto)) return 'Gourmet';
+  if (/chocolate|cocoa/.test(texto)) return 'Corona';
+  if (/sal/.test(texto)) return 'Refisal';
+  if (/pañal|panal|toallita|formula infantil|cereal infantil/.test(texto)) return 'Huggies';
+  if (/helado/.test(texto)) return 'Popsy';
+  if (/papas fritas|mani|gomitas|wafer|snack|maiz pira/.test(texto)) return 'Margarita';
+  if (/esponja|bolsa para basura|toallas de cocina/.test(texto)) return 'Familia';
+  if (/nevera|lavadora|estufa|microondas|licuadora|plancha/.test(texto)) return 'Haceb';
+  if (/televisor|computador|celular|audifono/.test(texto)) return 'Samsung';
+  if (/carro|vehiculo|motocicleta|bicicleta/.test(texto)) return 'AKT';
+  if (/carne|res|cerdo|pollo|pescado|camaron|chorizo|salchicha/.test(texto)) return 'Productor local';
+  if (/fruta|verdura|papa|yuca|cebolla|tomate|platano|guineo|limon|aguacate|zanahoria|pepino|repollo|lechuga|cilantro|pimenton|papaya|mango|pina|naranja|sandia/.test(texto)) return 'Productor local';
+  return 'Genérico';
+}
+

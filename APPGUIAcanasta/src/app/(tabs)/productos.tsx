@@ -962,6 +962,8 @@ export default function ProductosScreen() {
                 <View style={[styles.productImageWrapper, { backgroundColor: iconInfo.bg }]}>
                   <ProductImage
                     productName={item.nombre}
+                    brand={item.marca}
+                    sizeLabel={item.unidad_medida}
                     imageUrl={item.imagen_url}
                     style={styles.productImage}
                     fallback={

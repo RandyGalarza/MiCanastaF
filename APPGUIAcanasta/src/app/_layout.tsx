@@ -1,30 +1,43 @@
 import { Stack } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { initializeDatabase } from '../database/database';
 import { seedDatabase } from '../database/seed';
-import { syncDatabase } from '../database/syncService';
+import { pushToSupabase, syncDatabase } from '../database/syncService';
 import { AuthProvider } from '../contexts/auth-context';
 
 export default function RootLayout() {
+  const [databaseReady, setDatabaseReady] = useState(false);
+
   useEffect(() => {
     async function init() {
       try {
         await initializeDatabase();
         await seedDatabase();
-        // Sincronizar automáticamente con Supabase en segundo plano
-        syncDatabase()
-          .then(() => seedDatabase())
-          .catch((e) => console.warn('Error en sync inicial:', e));
       } catch (error) {
         console.error('Error inicializando la BD:', error);
+      } finally {
+        setDatabaseReady(true);
       }
+      void syncDatabase()
+        .then(async () => {
+          await seedDatabase();
+          await pushToSupabase();
+        })
+        .catch((e) => console.warn('Error en sync inicial:', e));
     }
-    init();
+    void init();
   }, []);
 
   return (
     <AuthProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      {databaseReady ? (
+        <Stack screenOptions={{ headerShown: false }} />
+      ) : (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8faf8' }}>
+          <ActivityIndicator size="large" color="#15803d" />
+        </View>
+      )}
     </AuthProvider>
   );
 }
