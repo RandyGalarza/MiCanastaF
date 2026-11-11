@@ -12,13 +12,18 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { crearUsuario, obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
+import * as Linking from 'expo-linking';
+import { crearUsuario, obtenerUsuario, obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
 import { obtenerComercios, crearComercio } from '../repositories/comercioRepository';
 import { Toast, ToastType } from '../components/toast';
 import { Comercio, RolUsuario } from '../types/database';
+import { supabase } from '../database/supabaseClient';
+import { useAuth } from '../contexts/auth-context';
+import { pushToSupabase } from '../database/syncService';
 
 export default function RegistroScreen() {
   const router = useRouter();
+  const { signIn } = useAuth();
   const [rol, setRol] = useState<RolUsuario>('usuario');
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
@@ -87,15 +92,40 @@ export default function RegistroScreen() {
 
     try {
       setCargando(true);
-      const existe = await obtenerUsuarioPorCorreo(correo.trim());
-      if (existe) {
+      const email = correo.trim().toLowerCase();
+      const existingUser = await obtenerUsuarioPorCorreo(email);
+      if (existingUser && existingUser.usu_estado !== 1) {
+        showToast('Esta cuenta está desactivada. Contacta al administrador.', 'error');
+        return;
+      }
+      if (existingUser?.contrasena) {
         showToast('El correo ya se encuentra registrado.', 'error');
+        return;
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password: contrasena,
+        options: {
+          emailRedirectTo: Linking.createURL('login'),
+          data: {
+            nombre: nombre.trim(),
+            apellido: apellido.trim(),
+            telefono: telefono.trim() || null,
+            rol,
+          },
+        },
+      });
+
+      if (authError) throw authError;
+      if (!authData.user || authData.user.identities?.length === 0) {
+        showToast('No se pudo crear la cuenta. Si ya tienes una, inicia sesión.', 'error');
         return;
       }
 
       let comercioIdParaUsuario: number | null = null;
 
-      if (rol === 'comercio') {
+      if (rol === 'comercio' && !existingUser) {
         if (esNuevoComercio) {
           comercioIdParaUsuario = await crearComercio(
             nuevoNombreComercio.trim(),
@@ -108,18 +138,32 @@ export default function RegistroScreen() {
         }
       }
 
-      await crearUsuario(
-        nombre.trim(),
-        apellido.trim(),
-        correo.trim(),
-        contrasena,
-        telefono.trim() || undefined,
-        rol,
-        comercioIdParaUsuario
-      );
+      const idUsuario = existingUser
+        ? existingUser.id_usuario
+        : await crearUsuario(
+            nombre.trim(),
+            apellido.trim(),
+            email,
+            telefono.trim() || undefined,
+            rol,
+            comercioIdParaUsuario
+          );
 
-      showToast('¡Cuenta creada exitosamente! Ahora puedes iniciar sesión.', 'success');
-      setTimeout(() => router.replace('/login'), 1500);
+      void pushToSupabase().catch((error) => {
+        console.error('No se pudo sincronizar el perfil recién creado:', error);
+      });
+
+      if (authData.session) {
+        const usuario = await obtenerUsuario(idUsuario);
+        if (usuario) {
+          signIn(usuario);
+          router.replace('/(tabs)/cuenta');
+          return;
+        }
+      }
+
+      showToast('Cuenta creada. Revisa tu correo para confirmar la dirección antes de iniciar sesión.', 'success');
+      setTimeout(() => router.replace('/login'), 2500);
     } catch (error) {
       console.error(error);
       showToast('No se pudo completar el registro.', 'error');
@@ -147,7 +191,7 @@ export default function RegistroScreen() {
             <Ionicons name="person-add-outline" size={32} color="#16a34a" />
           </View>
 
-          <Text style={styles.title}>Crear Cuenta</Text>
+          <Text style={styles.title} accessibilityRole="header">Crear Cuenta</Text>
           <Text style={styles.subtitle}>Únete a Mi Canasta Familiar</Text>
 
           {/* Selector de Tipo de Usuario */}
@@ -156,6 +200,9 @@ export default function RegistroScreen() {
             <TouchableOpacity
               style={[styles.roleOption, rol === 'usuario' && styles.roleOptionActive]}
               onPress={() => setRol('usuario')}
+              accessibilityRole="button"
+              accessibilityLabel="Tipo de cuenta: Usuario común"
+              accessibilityState={{ selected: rol === 'usuario' }}
             >
               <Ionicons
                 name="person"
@@ -175,6 +222,9 @@ export default function RegistroScreen() {
             <TouchableOpacity
               style={[styles.roleOption, rol === 'comercio' && styles.roleOptionActive]}
               onPress={() => setRol('comercio')}
+              accessibilityRole="button"
+              accessibilityLabel="Tipo de cuenta: Comercio o tienda"
+              accessibilityState={{ selected: rol === 'comercio' }}
             >
               <Ionicons
                 name="storefront"
@@ -201,6 +251,9 @@ export default function RegistroScreen() {
                 <TouchableOpacity
                   style={[styles.subTab, !esNuevoComercio && styles.subTabActive]}
                   onPress={() => setEsNuevoComercio(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Seleccionar comercio existente"
+                  accessibilityState={{ selected: !esNuevoComercio }}
                 >
                   <Text style={[styles.subTabText, !esNuevoComercio && styles.subTabTextActive]}>
                     Comercio existente
@@ -209,6 +262,9 @@ export default function RegistroScreen() {
                 <TouchableOpacity
                   style={[styles.subTab, esNuevoComercio && styles.subTabActive]}
                   onPress={() => setEsNuevoComercio(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Registrar un comercio nuevo"
+                  accessibilityState={{ selected: esNuevoComercio }}
                 >
                   <Text style={[styles.subTabText, esNuevoComercio && styles.subTabTextActive]}>
                     + Registrar nuevo
@@ -229,6 +285,9 @@ export default function RegistroScreen() {
                           styles.chip,
                           idComercioSeleccionado === com.id_comercio && styles.chipActive,
                         ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Seleccionar comercio ${com.nombre}`}
+                        accessibilityState={{ selected: idComercioSeleccionado === com.id_comercio }}
                       >
                         <Text
                           style={[
@@ -250,6 +309,7 @@ export default function RegistroScreen() {
                     placeholder="Ej. Frutería El Vergel"
                     value={nuevoNombreComercio}
                     onChangeText={setNuevoNombreComercio}
+                    accessibilityLabel="Nombre del comercio"
                   />
 
                   <Text style={styles.fieldLabel}>Tipo de Negocio</Text>
@@ -258,6 +318,7 @@ export default function RegistroScreen() {
                     placeholder="Ej. Supermercado, Tienda, Carnicería"
                     value={nuevoTipoComercio}
                     onChangeText={setNuevoTipoComercio}
+                    accessibilityLabel="Tipo de negocio"
                   />
 
                   <Text style={styles.fieldLabel}>Dirección del Local</Text>
@@ -266,6 +327,7 @@ export default function RegistroScreen() {
                     placeholder="Ej. Carrera 10 # 25-10"
                     value={nuevaDireccionComercio}
                     onChangeText={setNuevaDireccionComercio}
+                    accessibilityLabel="Dirección del comercio"
                   />
                 </View>
               )}
@@ -282,6 +344,9 @@ export default function RegistroScreen() {
                 placeholderTextColor="#94a3b8"
                 value={nombre}
                 onChangeText={setNombre}
+                accessibilityLabel="Nombre"
+                textContentType="givenName"
+                returnKeyType="next"
               />
             </View>
           </View>
@@ -296,6 +361,9 @@ export default function RegistroScreen() {
                 placeholderTextColor="#94a3b8"
                 value={apellido}
                 onChangeText={setApellido}
+                accessibilityLabel="Apellido"
+                textContentType="familyName"
+                returnKeyType="next"
               />
             </View>
           </View>
@@ -312,6 +380,10 @@ export default function RegistroScreen() {
                 autoCapitalize="none"
                 value={correo}
                 onChangeText={setCorreo}
+                accessibilityLabel="Correo electrónico"
+                accessibilityHint="Se usará para iniciar sesión"
+                textContentType="emailAddress"
+                returnKeyType="next"
               />
             </View>
           </View>
@@ -327,6 +399,9 @@ export default function RegistroScreen() {
                 keyboardType="phone-pad"
                 value={telefono}
                 onChangeText={setTelefono}
+                accessibilityLabel="Teléfono opcional"
+                textContentType="telephoneNumber"
+                returnKeyType="next"
               />
             </View>
           </View>
@@ -342,10 +417,18 @@ export default function RegistroScreen() {
                 secureTextEntry={!mostrarContrasena}
                 value={contrasena}
                 onChangeText={setContrasena}
+                accessibilityLabel="Contraseña"
+                accessibilityHint="Debe tener al menos 6 caracteres"
+                textContentType="newPassword"
+                returnKeyType="next"
               />
               <TouchableOpacity
                 onPress={() => setMostrarContrasena(!mostrarContrasena)}
                 style={styles.eyeIcon}
+                accessibilityRole="button"
+                accessibilityLabel={mostrarContrasena ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                accessibilityState={{ selected: mostrarContrasena }}
+                hitSlop={8}
               >
                 <Ionicons
                   name={mostrarContrasena ? 'eye-off-outline' : 'eye-outline'}
@@ -367,10 +450,17 @@ export default function RegistroScreen() {
                 secureTextEntry={!mostrarConfirmar}
                 value={confirmarContrasena}
                 onChangeText={setConfirmarContrasena}
+                accessibilityLabel="Confirmar contraseña"
+                textContentType="newPassword"
+                returnKeyType="done"
               />
               <TouchableOpacity
                 onPress={() => setMostrarConfirmar(!mostrarConfirmar)}
                 style={styles.eyeIcon}
+                accessibilityRole="button"
+                accessibilityLabel={mostrarConfirmar ? 'Ocultar confirmación de contraseña' : 'Mostrar confirmación de contraseña'}
+                accessibilityState={{ selected: mostrarConfirmar }}
+                hitSlop={8}
               >
                 <Ionicons
                   name={mostrarConfirmar ? 'eye-off-outline' : 'eye-outline'}
@@ -385,6 +475,9 @@ export default function RegistroScreen() {
             style={styles.buttonPrimary}
             onPress={handleRegistro}
             disabled={cargando}
+            accessibilityRole="button"
+            accessibilityLabel={cargando ? 'Creando cuenta' : 'Registrarse'}
+            accessibilityState={{ disabled: cargando, busy: cargando }}
           >
             {cargando ? (
               <ActivityIndicator color="#fff" />
@@ -395,7 +488,7 @@ export default function RegistroScreen() {
 
           <View style={styles.footerContainer}>
             <Text style={styles.footerText}>¿Ya tienes una cuenta? </Text>
-            <TouchableOpacity onPress={() => router.push('/login')}>
+            <TouchableOpacity onPress={() => router.push('/login')} accessibilityRole="link">
               <Text style={[styles.linkText, styles.bold]}>Inicia Sesión</Text>
             </TouchableOpacity>
           </View>

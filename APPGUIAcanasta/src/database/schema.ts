@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     apellido TEXT NOT NULL,
     telefono TEXT,
     correo TEXT NOT NULL UNIQUE,
-    contrasena TEXT NOT NULL,
+    contrasena TEXT NOT NULL DEFAULT '',
     rol TEXT NOT NULL DEFAULT 'usuario',
     id_comercio INTEGER,
     fecha_creacion TEXT NOT NULL DEFAULT CURRENT_DATE,
@@ -67,6 +67,24 @@ CREATE TABLE IF NOT EXISTS productos (
         REFERENCES comercios(id_comercio)
         ON UPDATE CASCADE
         ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS calificaciones_productos (
+    id_calificacion INTEGER PRIMARY KEY,
+    id_producto INTEGER NOT NULL,
+    id_usuario INTEGER NOT NULL,
+    puntuacion INTEGER NOT NULL CHECK (puntuacion BETWEEN 1 AND 5),
+    fecha_calificacion TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (id_producto, id_usuario),
+
+    FOREIGN KEY (id_producto)
+        REFERENCES productos(id_producto)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS precios (
@@ -164,6 +182,21 @@ CREATE TABLE IF NOT EXISTS movimientos_saldo (
         REFERENCES compras(id_compra)
         ON UPDATE CASCADE
         ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS movimientos_hogar (
+    id_movimiento_hogar INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    tipo TEXT NOT NULL CHECK (tipo IN ('ingreso', 'gasto')),
+    concepto TEXT NOT NULL,
+    categoria TEXT NOT NULL,
+    monto REAL NOT NULL CHECK (monto > 0),
+    fecha TEXT NOT NULL DEFAULT CURRENT_DATE,
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS pagos_pendientes (

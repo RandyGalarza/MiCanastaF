@@ -43,12 +43,14 @@ export default function HistorialComprasScreen() {
           style={styles.backButton}
           accessibilityRole="button"
           accessibilityLabel="Volver a la lista"
+          accessibilityHint="Regresa a tus listas de compra"
+          hitSlop={8}
         >
           <Ionicons name="arrow-back" size={20} color="#166534" />
         </Pressable>
         <View style={styles.headerIcon}><Ionicons name="receipt" size={23} color="#15803d" /></View>
         <View style={styles.headerCopy}>
-          <Text style={styles.title}>Historial de compras</Text>
+          <Text style={styles.title} accessibilityRole="header">Historial de compras</Text>
           <Text style={styles.subtitle}>Consulta tus compras y facturas</Text>
         </View>
       </View>
@@ -56,25 +58,36 @@ export default function HistorialComprasScreen() {
       {!user ? (
         <View style={styles.stateCard}>
           <Ionicons name="person-outline" size={30} color="#16a34a" />
-          <Text style={styles.cardTitle}>Inicia sesión para ver tu historial</Text>
+          <Text style={styles.cardTitle} accessibilityRole="header">Inicia sesión para ver tu historial</Text>
           <Text style={styles.bodyText}>Tus compras guardadas aparecerán aquí.</Text>
           <Link href="/login" style={styles.loginButton}>Iniciar sesión</Link>
         </View>
       ) : loading ? (
-        <View style={styles.stateCard}><ActivityIndicator color="#16a34a" /><Text style={styles.bodyText}>Cargando compras…</Text></View>
+        <View style={styles.stateCard} accessibilityLiveRegion="polite">
+          <ActivityIndicator color="#16a34a" accessibilityLabel="Cargando compras" />
+          <Text style={styles.bodyText}>Cargando compras…</Text>
+        </View>
       ) : error ? (
         <View style={styles.stateCard}>
           <Ionicons name="alert-circle-outline" size={29} color="#dc2626" />
-          <Text style={styles.cardTitle}>No pudimos abrir tu historial</Text>
-          <Text style={styles.bodyText}>{error}</Text>
-          <Pressable onPress={() => void loadPurchases()} style={styles.retryButton}><Text style={styles.retryText}>Intentar de nuevo</Text></Pressable>
+          <Text style={styles.cardTitle} accessibilityRole="header">No pudimos abrir tu historial</Text>
+          <Text style={styles.bodyText} accessibilityRole="alert">{error}</Text>
+          <Pressable
+            onPress={() => void loadPurchases()}
+            style={styles.retryButton}
+            accessibilityRole="button"
+            accessibilityLabel="Volver a cargar el historial"
+            accessibilityHint="Intenta cargar tus compras nuevamente"
+          >
+            <Text style={styles.retryText}>Intentar de nuevo</Text>
+          </Pressable>
         </View>
       ) : purchases.length === 0 ? (
         <View style={styles.stateCard}>
           <View style={styles.emptyIcon}><Ionicons name="cart-outline" size={28} color="#16a34a" /></View>
-          <Text style={styles.cardTitle}>Todavía no tienes compras</Text>
+          <Text style={styles.cardTitle} accessibilityRole="header">Todavía no tienes compras</Text>
           <Text style={styles.bodyText}>Marca los productos comprados en una lista y registra tu primera compra para crear una factura.</Text>
-          <Pressable onPress={() => router.push('/lista-compra')} style={styles.primaryButton}>
+          <Pressable onPress={() => router.push('/lista-compra')} style={styles.primaryButton} accessibilityRole="button" accessibilityLabel="Ir a mis listas de compra">
             <Text style={styles.primaryButtonText}>Ir a mis listas</Text>
           </Pressable>
         </View>
@@ -86,7 +99,8 @@ export default function HistorialComprasScreen() {
               onPress={() => router.push({ pathname: '/factura/[id]', params: { id: String(purchase.id_compra) } })}
               style={({ pressed }) => [styles.purchaseCard, pressed && styles.pressed]}
               accessibilityRole="button"
-              accessibilityLabel={`Abrir factura ${purchase.numero_factura}`}>
+              accessibilityLabel={`Abrir factura ${purchase.numero_factura}, ${purchase.nombre_lista}, total ${currency(purchase.total)}`}
+              accessibilityHint="Abre el detalle y las opciones de la factura">
               <View style={styles.purchaseIcon}><Ionicons name="receipt-outline" size={20} color="#15803d" /></View>
               <View style={styles.purchaseCopy}>
                 <Text style={styles.purchaseTitle} numberOfLines={1}>{purchase.nombre_lista}</Text>

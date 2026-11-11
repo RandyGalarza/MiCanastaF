@@ -57,7 +57,13 @@ export function Toast({ visible, message, type = 'info', duration = 3000, onHide
   const colors = COLORS[type];
 
   return (
-    <Animated.View style={[styles.container, { opacity, transform: [{ translateY }] }]}>
+    <Animated.View
+      style={[styles.container, { opacity, transform: [{ translateY }] }]}
+      accessible
+      accessibilityRole={type === 'error' ? 'alert' : 'text'}
+      accessibilityLabel={message}
+      accessibilityLiveRegion={type === 'error' ? 'assertive' : 'polite'}
+    >
       <View style={[styles.toast, { backgroundColor: colors.bg, borderColor: colors.border }]}>
         <Ionicons name={ICONS[type] as any} size={22} color={colors.icon} style={styles.icon} />
         <Text style={[styles.message, { color: type === 'error' ? '#991b1b' : type === 'success' ? '#14532d' : '#1e3a8a' }]}>

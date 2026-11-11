@@ -24,7 +24,6 @@ const SYNC_TABLES: { name: string; pk: string; allowedColumns: string[] }[] = [
       'apellido',
       'telefono',
       'correo',
-      'contrasena',
       'rol',
       'id_comercio',
       'fecha_creacion',
@@ -50,6 +49,11 @@ const SYNC_TABLES: { name: string; pk: string; allowedColumns: string[] }[] = [
       'imagen_url',
       'pro_estado',
     ],
+  },
+  {
+    name: 'calificaciones_productos',
+    pk: 'id_calificacion',
+    allowedColumns: ['id_calificacion', 'id_producto', 'id_usuario', 'puntuacion', 'fecha_calificacion'],
   },
   {
     name: 'precios',
@@ -144,7 +148,8 @@ function sanitizeRow(row: Record<string, any>, allowed: string[]): Record<string
 }
 
 function logSyncError(direction: 'Pull' | 'Push' | 'Realtime', table: string, message: string) {
-  const setupHint = table === 'compras' && /PGRST205|schema cache|could not find the table/i.test(message)
+  const needsUpdatedSchema = table === 'compras' || table === 'calificaciones_productos';
+  const setupHint = needsUpdatedSchema && /PGRST205|schema cache|could not find the table/i.test(message)
     ? ' Ejecuta el bloque actualizado de supabase_schema.sql en el SQL Editor de Supabase.'
     : '';
   console.warn(`[Sync ${direction}] Supabase tabla '${table}': ${message}${setupHint}`);
@@ -169,6 +174,9 @@ export async function pullFromSupabase(): Promise<boolean> {
       if (data && data.length > 0) {
         for (const rawRow of data) {
           const row = sanitizeRow(rawRow, allowedColumns);
+          if (name === 'usuarios' && row.contrasena === undefined) {
+            row.contrasena = '';
+          }
           const existing = await db.getFirstAsync<any>(
             `SELECT * FROM ${name} WHERE ${pk} = ?`,
             [row[pk]]

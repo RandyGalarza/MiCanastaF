@@ -30,14 +30,14 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <AuthProvider>
-      {databaseReady ? (
+    databaseReady ? (
+      <AuthProvider>
         <Stack screenOptions={{ headerShown: false }} />
-      ) : (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8faf8' }}>
-          <ActivityIndicator size="large" color="#15803d" />
-        </View>
-      )}
-    </AuthProvider>
+      </AuthProvider>
+    ) : (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8faf8' }} accessibilityLiveRegion="polite">
+        <ActivityIndicator size="large" color="#15803d" accessibilityLabel="Preparando la aplicación" />
+      </View>
+    )
   );
 }

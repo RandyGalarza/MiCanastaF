@@ -14,7 +14,8 @@ import {
 } from '@/repositories/compraRepository';
 import type { MovimientoSaldo, PagoPendiente } from '@/repositories/compraRepository';
 import { actualizarPresupuesto, crearPresupuesto, obtenerPresupuestos } from '@/repositories/presupuestoRepository';
-import { Compra, Presupuesto, VentaComercio } from '@/types/database';
+import { obtenerMovimientosHogar } from '@/repositories/movimientoHogarRepository';
+import { Compra, MovimientoHogar, Presupuesto, VentaComercio } from '@/types/database';
 
 const currency = (amount: number) => `$${Number(amount || 0).toLocaleString('es-CO')}`;
 type SalesPeriod = 'month' | 'all';
@@ -57,6 +58,7 @@ export default function PresupuestoScreen() {
   const { user, isComercio } = useAuth();
   const [presupuestos, setPresupuestos] = useState<Presupuesto[]>([]);
   const [purchases, setPurchases] = useState<Compra[]>([]);
+  const [householdMovements, setHouseholdMovements] = useState<MovimientoHogar[]>([]);
   const [sales, setSales] = useState<VentaComercio[]>([]);
   const [selectedBudgetId, setSelectedBudgetId] = useState<number | null>(null);
   const [salesPeriod, setSalesPeriod] = useState<SalesPeriod>('month');
@@ -81,6 +83,7 @@ export default function PresupuestoScreen() {
     if (!user) {
       setPresupuestos([]);
       setPurchases([]);
+      setHouseholdMovements([]);
       setSales([]);
       setWalletBalance(0);
       setWalletMovements([]);
@@ -94,21 +97,24 @@ export default function PresupuestoScreen() {
       if (isComercio) {
         setPresupuestos([]);
         setPurchases([]);
+        setHouseholdMovements([]);
         setSales(user.id_comercio ? await obtenerVentasComercio(user.id_comercio) : []);
         setWalletBalance(0);
         setWalletMovements([]);
         setPendingPayments([]);
         return;
       }
-      const [result, userPurchases, balance, movements, openPayments] = await Promise.all([
+      const [result, userPurchases, household, balance, movements, openPayments] = await Promise.all([
         obtenerPresupuestos(user.id_usuario),
         obtenerCompras(user.id_usuario),
+        obtenerMovimientosHogar(user.id_usuario),
         obtenerSaldoUsuario(user.id_usuario),
         obtenerMovimientosSaldo(user.id_usuario),
         obtenerPagosPendientes(user.id_usuario),
       ]);
       setPresupuestos(result);
       setPurchases(userPurchases);
+      setHouseholdMovements(household);
       setWalletBalance(balance);
       setWalletMovements(movements);
       setPendingPayments(openPayments);
@@ -138,7 +144,17 @@ export default function PresupuestoScreen() {
       return date >= presupuestoActual.fecha_inicio && date <= presupuestoActual.fecha_fin;
     });
   }, [presupuestoActual, purchases]);
-  const spent = purchasesForBudget.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
+  const householdExpensesForBudget = useMemo(() => {
+    if (!presupuestoActual) return [];
+    return householdMovements.filter((movement) =>
+      movement.tipo === 'gasto' &&
+      movement.fecha >= presupuestoActual.fecha_inicio &&
+      movement.fecha <= presupuestoActual.fecha_fin
+    );
+  }, [presupuestoActual, householdMovements]);
+  const householdExpenses = householdExpensesForBudget.reduce((sum, movement) => sum + Number(movement.monto || 0), 0);
+  const marketPurchases = purchasesForBudget.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
+  const spent = marketPurchases + householdExpenses;
   const remaining = Math.max(0, Number(presupuestoActual?.monto || 0) - spent);
   const spentPercentage = presupuestoActual?.monto
     ? Math.min((spent / presupuestoActual.monto) * 100, 100)
@@ -311,32 +327,39 @@ export default function PresupuestoScreen() {
       <View style={styles.heading}>
         <View style={styles.headingIcon}><Ionicons name="wallet" size={23} color="#15803d" /></View>
         <View style={styles.headingCopy}>
-          <Text style={styles.title}>{isComercio ? 'Ventas del comercio' : 'Mi presupuesto'}</Text>
+          <Text style={styles.title} accessibilityRole="header">{isComercio ? 'Ventas del comercio' : 'Mi presupuesto'}</Text>
           <Text style={styles.subtitle}>{isComercio ? 'Ingresos reportados por compras registradas' : 'Lleva el control de tu mercado'}</Text>
         </View>
         {user && !isComercio && (
-          <Pressable onPress={startCreate} style={styles.newBudgetButton} accessibilityRole="button">
+          <Pressable onPress={startCreate} style={styles.newBudgetButton} accessibilityRole="button" accessibilityLabel="Crear presupuesto" accessibilityHint="Abre el formulario de presupuesto">
             <Ionicons name="add" size={18} color="#ffffff" />
             <Text style={styles.newBudgetButtonText}>Crear</Text>
           </Pressable>
         )}
       </View>
+      {user && !isComercio && (
+        <Link href="/movimientos" style={styles.movementsLink} accessibilityRole="link" accessibilityLabel="Registrar ingresos y gastos del hogar">
+          <Ionicons name="swap-vertical-outline" size={17} color="#166534" />
+          <Text style={styles.movementsLinkText}>Registrar ingresos y gastos</Text>
+          <Ionicons name="chevron-forward" size={15} color="#64748b" />
+        </Link>
+      )}
 
       {!user ? (
         <View style={styles.emptyCard}>
           <View style={styles.emptyIcon}><Ionicons name="person-outline" size={27} color="#16a34a" /></View>
-          <Text style={styles.cardTitle}>Inicia sesión para ver tu saldo</Text>
+          <Text style={styles.cardTitle} accessibilityRole="header">Inicia sesión para ver tu saldo</Text>
           <Text style={styles.bodyText}>Tu presupuesto personal estará disponible aquí cuando ingreses a tu cuenta.</Text>
           <Link href="/login" style={styles.loginLink}>Iniciar sesión</Link>
         </View>
       ) : loading ? (
-        <View style={styles.emptyCard}><ActivityIndicator color="#16a34a" /><Text style={styles.bodyText}>{isComercio ? 'Cargando tus ventas…' : 'Cargando tu presupuesto…'}</Text></View>
+        <View style={styles.emptyCard} accessibilityLiveRegion="polite"><ActivityIndicator color="#16a34a" accessibilityLabel={isComercio ? 'Cargando ventas' : 'Cargando presupuesto'} /><Text style={styles.bodyText}>{isComercio ? 'Cargando tus ventas…' : 'Cargando tu presupuesto…'}</Text></View>
       ) : loadError ? (
         <View style={styles.emptyCard}>
           <Ionicons name="alert-circle-outline" size={30} color="#dc2626" />
-          <Text style={styles.cardTitle}>No pudimos cargar tu presupuesto</Text>
-          <Text style={styles.bodyText}>Intenta de nuevo en un momento.</Text>
-          <Pressable onPress={() => void cargar()} style={styles.retryButton} accessibilityRole="button">
+          <Text style={styles.cardTitle} accessibilityRole="header">No pudimos cargar tu presupuesto</Text>
+          <Text style={styles.bodyText} accessibilityRole="alert">Intenta de nuevo en un momento.</Text>
+          <Pressable onPress={() => void cargar()} style={styles.retryButton} accessibilityRole="button" accessibilityLabel="Volver a cargar el presupuesto" accessibilityHint="Intenta cargar los datos otra vez">
             <Text style={styles.retryButtonText}>Intentar de nuevo</Text>
           </Pressable>
         </View>
@@ -471,13 +494,13 @@ export default function PresupuestoScreen() {
             <View style={styles.infoIcon}><Ionicons name="information-circle-outline" size={20} color="#0369a1" /></View>
             <View style={styles.infoCopy}>
               <Text style={styles.infoTitle}>¿Cómo calculamos tus gastos?</Text>
-              <Text style={styles.infoText}>Sumamos las compras registradas entre las fechas de este presupuesto. Las compras no registradas no se incluyen.</Text>
+              <Text style={styles.infoText}>Sumamos las compras de tus listas y los gastos adicionales registrados dentro de este periodo. No registres dos veces una compra de mercado.</Text>
             </View>
           </View>
 
           <View style={styles.sectionHeadingRow}>
-            <View><Text style={styles.sectionTitle}>Resumen del presupuesto</Text><Text style={styles.sectionSubtitle}>Cifras del periodo seleccionado</Text></View>
-            <Pressable onPress={() => startEdit(presupuestoActual)} style={styles.editBudgetButton} accessibilityRole="button" accessibilityLabel="Editar presupuesto">
+            <View>            <Text style={styles.sectionTitle} accessibilityRole="header">Resumen del presupuesto</Text><Text style={styles.sectionSubtitle}>Cifras del periodo seleccionado</Text></View>
+            <Pressable onPress={() => startEdit(presupuestoActual)} style={styles.editBudgetButton} accessibilityRole="button" accessibilityLabel="Editar presupuesto" accessibilityHint="Modifica el monto o periodo seleccionado" hitSlop={6}>
               <Ionicons name="create-outline" size={17} color="#168344" />
               <Text style={styles.editBudgetText}>Editar</Text>
             </Pressable>
@@ -485,7 +508,11 @@ export default function PresupuestoScreen() {
           <View style={styles.summaryCard}>
             <SummaryRow icon="cash-outline" label="Monto asignado" value={currency(presupuestoActual.monto)} />
             <View style={styles.summaryDivider} />
-            <SummaryRow icon="cart-outline" label="Compras registradas" value={currency(spent)} />
+            <SummaryRow icon="cart-outline" label="Compras de mercado" value={currency(marketPurchases)} />
+            <View style={styles.summaryDivider} />
+            <SummaryRow icon="remove-circle-outline" label="Gastos adicionales" value={currency(householdExpenses)} />
+            <View style={styles.summaryDivider} />
+            <SummaryRow icon="trending-down-outline" label="Gasto total" value={currency(spent)} />
             <View style={styles.summaryDivider} />
             <SummaryRow icon="wallet-outline" label="Saldo disponible" value={currency(remaining)} />
             <View style={styles.summaryDivider} />
@@ -493,12 +520,12 @@ export default function PresupuestoScreen() {
           </View>
 
           <View style={styles.sectionHeadingRow}>
-            <View><Text style={styles.sectionTitle}>Compras del periodo</Text><Text style={styles.sectionSubtitle}>Registradas entre las fechas del presupuesto</Text></View>
+            <View><Text style={styles.sectionTitle} accessibilityRole="header">Compras del periodo</Text><Text style={styles.sectionSubtitle}>Registradas entre las fechas del presupuesto</Text></View>
           </View>
           {purchasesForBudget.length === 0 ? (
             <View style={styles.emptyPurchasesCard}>
               <View style={styles.emptyIcon}><Ionicons name="receipt-outline" size={23} color="#168344" /></View>
-              <Text style={styles.emptyPurchasesTitle}>Aún no hay compras registradas</Text>
+              <Text style={styles.emptyPurchasesTitle} accessibilityRole="header">Aún no hay compras registradas</Text>
               <Text style={styles.bodyText}>Cuando registres una compra dentro de este periodo, verás aquí el gasto y su factura.</Text>
               <Link href="/lista-compra" style={styles.secondaryActionLink}>Ir a mis listas</Link>
             </View>
@@ -507,6 +534,8 @@ export default function PresupuestoScreen() {
               key={purchase.id_compra}
               href={{ pathname: '/factura/[id]', params: { id: String(purchase.id_compra) } }}
               style={styles.purchaseRowLink}
+              accessibilityRole="link"
+              accessibilityLabel={`Factura ${purchase.numero_factura}, ${purchase.nombre_lista}, total ${currency(purchase.total)}`}
             >
               <View style={styles.purchaseIcon}><Ionicons name="receipt-outline" size={18} color="#168344" /></View>
               <View style={styles.purchaseCopy}>
@@ -522,7 +551,7 @@ export default function PresupuestoScreen() {
           {presupuestos.length > 0 && (
             <>
               <View style={styles.sectionHeadingRow}>
-                <View><Text style={styles.sectionTitle}>Mis presupuestos</Text><Text style={styles.sectionSubtitle}>Selecciona uno para consultar su resumen</Text></View>
+                <View><Text style={styles.sectionTitle} accessibilityRole="header">Mis presupuestos</Text><Text style={styles.sectionSubtitle}>Selecciona uno para consultar su resumen</Text></View>
               </View>
               <View style={styles.budgetList}>
                 {presupuestos.map((budget) => {
@@ -534,6 +563,8 @@ export default function PresupuestoScreen() {
                         onPress={() => setSelectedBudgetId(budget.id_presupuesto)}
                         style={styles.budgetSelectButton}
                         accessibilityRole="button"
+                        accessibilityLabel={`Seleccionar presupuesto ${budget.nombre}, ${currency(budget.monto)}, ${status}`}
+                        accessibilityHint="Muestra el resumen de este presupuesto"
                         accessibilityState={{ selected }}
                       >
                         <View style={[styles.budgetListIcon, selected && styles.budgetListIconSelected]}>
@@ -546,10 +577,10 @@ export default function PresupuestoScreen() {
                         <Text style={styles.budgetListAmount}>{currency(budget.monto)}</Text>
                       </Pressable>
                       <View style={styles.budgetActions}>
-                        <Pressable onPress={() => startEdit(budget)} style={styles.budgetActionButton} accessibilityRole="button" accessibilityLabel={`Editar ${budget.nombre}`}>
+                        <Pressable onPress={() => startEdit(budget)} style={styles.budgetActionButton} accessibilityRole="button" accessibilityLabel={`Editar ${budget.nombre}`} accessibilityHint="Modifica este presupuesto" hitSlop={6}>
                           <Ionicons name="create-outline" size={17} color="#168344" />
                         </Pressable>
-                        <Pressable onPress={() => void toggleBudgetStatus(budget)} style={styles.budgetActionButton} accessibilityRole="button" accessibilityLabel={`${budget.pre_estado === 1 ? 'Pausar' : 'Activar'} ${budget.nombre}`}>
+                        <Pressable onPress={() => void toggleBudgetStatus(budget)} style={styles.budgetActionButton} accessibilityRole="button" accessibilityLabel={`${budget.pre_estado === 1 ? 'Pausar' : 'Activar'} ${budget.nombre}`} accessibilityState={{ selected: budget.pre_estado === 1 }} hitSlop={6}>
                           <Ionicons name={budget.pre_estado === 1 ? 'pause-circle-outline' : 'play-circle-outline'} size={18} color={budget.pre_estado === 1 ? '#b45309' : '#168344'} />
                         </Pressable>
                       </View>
@@ -577,14 +608,15 @@ export default function PresupuestoScreen() {
           />
           <View style={styles.emptyCard}>
             <View style={styles.emptyIcon}><Ionicons name="pie-chart-outline" size={28} color="#16a34a" /></View>
-            <Text style={styles.cardTitle}>Aún no tienes un presupuesto activo</Text>
+            <Text style={styles.cardTitle} accessibilityRole="header">Aún no tienes un presupuesto activo</Text>
             <Text style={styles.bodyText}>Cuando configures un presupuesto, aquí podrás consultar el monto asignado y tu saldo disponible.</Text>
             <View style={styles.suggestion}><Ionicons name="bulb-outline" size={18} color="#b45309" /><Text style={styles.suggestionText}>Define un monto para organizar mejor tus compras del mercado.</Text></View>
-            <Pressable onPress={startCreate} style={styles.createBudgetCta} accessibilityRole="button">
+            <Pressable onPress={startCreate} style={styles.createBudgetCta} accessibilityRole="button" accessibilityLabel="Crear mi presupuesto" accessibilityHint="Abre el formulario para asignar un monto y periodo">
               <Ionicons name="add" size={18} color="#ffffff" />
               <Text style={styles.createBudgetCtaText}>Crear mi presupuesto</Text>
             </Pressable>
             <Link href="/productos" style={styles.budgetCatalogLink}>Explorar productos del mercado</Link>
+            <Link href="/movimientos" style={styles.secondaryActionLink}>Registrar ingresos y gastos</Link>
           </View>
         </>
       )}
@@ -649,7 +681,7 @@ function WalletSection({
             <Text style={styles.walletCardTitle}>Saldo de la app</Text>
             <Text style={styles.walletCardCaption}>Solo en este dispositivo</Text>
           </View>
-          <Pressable onPress={onTopUp} style={styles.walletTopUpButton} accessibilityRole="button">
+          <Pressable onPress={onTopUp} style={styles.walletTopUpButton} accessibilityRole="button" accessibilityLabel="Recargar saldo de prueba" accessibilityHint="Abre el formulario para añadir saldo ficticio">
             <Ionicons name="add" size={16} color="#ffffff" />
             <Text style={styles.walletTopUpText}>Recargar</Text>
           </Pressable>
@@ -662,7 +694,7 @@ function WalletSection({
       </View>
 
       {actionError ? (
-        <View style={styles.walletActionError}>
+        <View style={styles.walletActionError} accessibilityRole="alert" accessibilityLiveRegion="polite">
           <Ionicons name="alert-circle-outline" size={16} color="#b91c1c" />
           <Text style={styles.walletActionErrorText}>{actionError}</Text>
         </View>
@@ -670,7 +702,7 @@ function WalletSection({
 
       {pendingPayments.length > 0 && (
         <View style={styles.walletSubcard}>
-          <Text style={styles.walletSubcardTitle}>Pagos presenciales de prueba pendientes</Text>
+          <Text style={styles.walletSubcardTitle} accessibilityRole="header">Pagos presenciales de prueba pendientes</Text>
           {pendingPayments.map((payment) => (
             <View key={payment.id_pago} style={styles.walletPendingRow}>
               <View style={styles.walletPendingCopy}>
@@ -683,6 +715,8 @@ function WalletSection({
                 style={[styles.walletSimulateButton, saving && styles.disabledButton]}
                 accessibilityRole="button"
                 accessibilityLabel={`Simular pago recibido para ${payment.referencia}`}
+                accessibilityHint="Registra un pago ficticio en el saldo local"
+                accessibilityState={{ disabled: saving, busy: saving }}
               >
                 {saving ? <ActivityIndicator size="small" color="#166534" /> : <Text style={styles.walletSimulateText}>Simular pago</Text>}
               </Pressable>
@@ -692,7 +726,7 @@ function WalletSection({
       )}
 
       <View style={styles.walletSubcard}>
-        <Text style={styles.walletSubcardTitle}>Movimientos recientes</Text>
+        <Text style={styles.walletSubcardTitle} accessibilityRole="header">Movimientos recientes</Text>
         {movements.length === 0 ? (
           <Text style={styles.walletEmptyText}>Aquí aparecerán tus recargas y pagos de prueba.</Text>
         ) : movements.slice(0, 4).map((movement) => (
@@ -734,13 +768,13 @@ function TopUpModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
-        <View style={styles.topUpModal}>
+        <View style={styles.topUpModal} accessibilityViewIsModal>
           <View style={styles.modalHeader}>
             <View style={styles.modalTitleCopy}>
               <Text style={styles.modalEyebrow}>BILLETERA DE PRUEBA</Text>
-              <Text style={styles.modalTitle}>Recargar saldo</Text>
+              <Text style={styles.modalTitle} accessibilityRole="header">Recargar saldo</Text>
             </View>
-            <Pressable onPress={onClose} style={styles.modalClose} accessibilityRole="button" accessibilityLabel="Cerrar recarga">
+            <Pressable onPress={onClose} style={styles.modalClose} accessibilityRole="button" accessibilityLabel="Cerrar recarga" accessibilityHint="Cierra el formulario de recarga" hitSlop={8}>
               <Ionicons name="close" size={20} color="#526257" />
             </Pressable>
           </View>
@@ -756,22 +790,23 @@ function TopUpModal({
               style={styles.amountInput}
               keyboardType="number-pad"
               accessibilityLabel="Monto de la recarga de prueba"
+              accessibilityHint="Ingresa un monto en pesos colombianos"
             />
             <Text style={styles.currencySuffix}>COP</Text>
           </View>
           <View style={styles.topUpPresets}>
             {[20000, 50000, 100000].map((value) => (
-              <Pressable key={value} onPress={() => onAmountChange(String(value))} style={styles.topUpPreset} accessibilityRole="button">
+              <Pressable key={value} onPress={() => onAmountChange(String(value))} style={styles.topUpPreset} accessibilityRole="button" accessibilityLabel={`Usar ${currency(value)} como monto`} accessibilityState={{ selected: amount === String(value) }}>
                 <Text style={styles.topUpPresetText}>{currency(value)}</Text>
               </Pressable>
             ))}
           </View>
-          {error ? <View style={styles.formError}><Ionicons name="alert-circle-outline" size={17} color="#b42318" /><Text style={styles.formErrorText}>{error}</Text></View> : null}
+          {error ? <View style={styles.formError} accessibilityRole="alert" accessibilityLiveRegion="polite"><Ionicons name="alert-circle-outline" size={17} color="#b42318" /><Text style={styles.formErrorText}>{error}</Text></View> : null}
           <View style={styles.modalActions}>
-            <Pressable onPress={onClose} disabled={saving} style={styles.cancelButton} accessibilityRole="button">
+            <Pressable onPress={onClose} disabled={saving} style={styles.cancelButton} accessibilityRole="button" accessibilityLabel="Cancelar recarga" accessibilityState={{ disabled: saving }}>
               <Text style={styles.cancelButtonText}>Cancelar</Text>
             </Pressable>
-            <Pressable onPress={onSave} disabled={saving} style={[styles.saveBudgetButton, saving && styles.disabledButton]} accessibilityRole="button">
+            <Pressable onPress={onSave} disabled={saving} style={[styles.saveBudgetButton, saving && styles.disabledButton]} accessibilityRole="button" accessibilityLabel={saving ? 'Añadiendo saldo de prueba' : 'Añadir saldo de prueba'} accessibilityState={{ disabled: saving, busy: saving }}>
               {saving ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="add-circle-outline" size={18} color="#ffffff" />}
               <Text style={styles.saveBudgetText}>{saving ? 'Recargando…' : 'Añadir saldo de prueba'}</Text>
             </Pressable>
@@ -787,6 +822,8 @@ function PeriodButton({ label, selected, onPress }: { label: string; selected: b
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="Selecciona este periodo para el resumen de ventas"
       accessibilityState={{ selected }}
       style={[styles.periodFilter, selected && styles.periodFilterActive]}>
       <Text style={[styles.periodFilterText, selected && styles.periodFilterTextActive]}>{label}</Text>
@@ -835,13 +872,13 @@ function BudgetFormModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+        <View style={styles.modalCard} accessibilityViewIsModal>
           <View style={styles.modalHeader}>
             <View style={styles.modalTitleCopy}>
               <Text style={styles.modalEyebrow}>{editing ? 'ACTUALIZA TU PLAN' : 'ORGANIZA TU MERCADO'}</Text>
-              <Text style={styles.modalTitle}>{editing ? 'Editar presupuesto' : 'Nuevo presupuesto'}</Text>
+              <Text style={styles.modalTitle} accessibilityRole="header">{editing ? 'Editar presupuesto' : 'Nuevo presupuesto'}</Text>
             </View>
-            <Pressable onPress={onClose} style={styles.modalClose} accessibilityRole="button" accessibilityLabel="Cerrar formulario">
+            <Pressable onPress={onClose} style={styles.modalClose} accessibilityRole="button" accessibilityLabel="Cerrar formulario de presupuesto" accessibilityHint="Cierra el formulario sin guardar" hitSlop={8}>
               <Ionicons name="close" size={20} color="#526257" />
             </Pressable>
           </View>
@@ -856,6 +893,7 @@ function BudgetFormModal({
               style={styles.formInput}
               maxLength={50}
               accessibilityLabel="Nombre del presupuesto"
+              accessibilityHint="Escribe un nombre fácil de reconocer"
             />
 
             <Text style={styles.fieldLabel}>Monto que quieres destinar</Text>
@@ -869,6 +907,7 @@ function BudgetFormModal({
                 style={styles.amountInput}
                 keyboardType="decimal-pad"
                 accessibilityLabel="Monto del presupuesto en pesos"
+                accessibilityHint="Escribe el monto en pesos colombianos"
               />
               <Text style={styles.currencySuffix}>COP</Text>
             </View>
@@ -878,11 +917,11 @@ function BudgetFormModal({
               <Text style={styles.dateFormatHint}>Formato AAAA-MM-DD</Text>
             </View>
             <View style={styles.presetRow}>
-              <Pressable onPress={() => setPreset('month')} style={styles.presetButton} accessibilityRole="button">
+              <Pressable onPress={() => setPreset('month')} style={styles.presetButton} accessibilityRole="button" accessibilityLabel="Usar el periodo de este mes">
                 <Ionicons name="calendar-outline" size={15} color="#168344" />
                 <Text style={styles.presetButtonText}>Este mes</Text>
               </Pressable>
-              <Pressable onPress={() => setPreset('fortnight')} style={styles.presetButton} accessibilityRole="button">
+              <Pressable onPress={() => setPreset('fortnight')} style={styles.presetButton} accessibilityRole="button" accessibilityLabel="Usar el periodo de esta quincena">
                 <Ionicons name="time-outline" size={15} color="#168344" />
                 <Text style={styles.presetButtonText}>Esta quincena</Text>
               </Pressable>
@@ -899,6 +938,7 @@ function BudgetFormModal({
                   keyboardType="numbers-and-punctuation"
                   maxLength={10}
                   accessibilityLabel="Fecha inicial"
+                  accessibilityHint="Usa el formato año, mes y día"
                 />
               </View>
               <View style={styles.dateField}>
@@ -912,6 +952,7 @@ function BudgetFormModal({
                   keyboardType="numbers-and-punctuation"
                   maxLength={10}
                   accessibilityLabel="Fecha final"
+                  accessibilityHint="Usa el formato año, mes y día"
                 />
               </View>
             </View>
@@ -921,7 +962,7 @@ function BudgetFormModal({
               <Text style={styles.formNoteText}>Los gastos se calculan con las compras que registres dentro de este periodo.</Text>
             </View>
             {error ? (
-              <View style={styles.formError}>
+              <View style={styles.formError} accessibilityRole="alert" accessibilityLiveRegion="polite">
                 <Ionicons name="alert-circle-outline" size={17} color="#b42318" />
                 <Text style={styles.formErrorText}>{error}</Text>
               </View>
@@ -929,10 +970,10 @@ function BudgetFormModal({
           </ScrollView>
 
           <View style={styles.modalActions}>
-            <Pressable onPress={onClose} disabled={saving} style={styles.cancelButton} accessibilityRole="button">
+            <Pressable onPress={onClose} disabled={saving} style={styles.cancelButton} accessibilityRole="button" accessibilityLabel="Cancelar presupuesto" accessibilityState={{ disabled: saving }}>
               <Text style={styles.cancelButtonText}>Cancelar</Text>
             </Pressable>
-            <Pressable onPress={onSave} disabled={saving} style={[styles.saveBudgetButton, saving && styles.disabledButton]} accessibilityRole="button">
+            <Pressable onPress={onSave} disabled={saving} style={[styles.saveBudgetButton, saving && styles.disabledButton]} accessibilityRole="button" accessibilityLabel={saving ? 'Guardando presupuesto' : editing ? 'Guardar cambios del presupuesto' : 'Crear presupuesto'} accessibilityState={{ disabled: saving, busy: saving }}>
               {saving ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="checkmark" size={18} color="#ffffff" />}
               <Text style={styles.saveBudgetText}>{saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear presupuesto'}</Text>
             </Pressable>
@@ -959,6 +1000,8 @@ const styles = StyleSheet.create({
   heading: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 2 },
   headingIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
   headingCopy: { flex: 1 },
+  movementsLink: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#eaf6eb' },
+  movementsLinkText: { flex: 1, color: '#166534', fontSize: 12, fontWeight: '700' },
   newBudgetButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#168344' },
   newBudgetButtonText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
   title: { color: '#14532d', fontSize: 23, fontWeight: '800' },
@@ -1101,19 +1144,19 @@ const styles = StyleSheet.create({
   budgetListMeta: { color: '#718076', fontSize: 10 },
   budgetListAmount: { color: '#168344', fontSize: 12, fontWeight: '800' },
   budgetActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 6, marginTop: 7 },
-  budgetActionButton: { width: 34, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#f3f6f2' },
+  budgetActionButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#f3f6f2' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(17, 27, 20, 0.45)' },
   modalCard: { width: '100%', maxWidth: 560, maxHeight: '92%', alignSelf: 'center', padding: 20, paddingBottom: 22, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: '#f9faf8' },
   topUpModal: { width: '100%', maxWidth: 560, alignSelf: 'center', gap: 10, padding: 20, paddingBottom: 22, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: '#f9faf8' },
   topUpExplanation: { color: '#64748b', fontSize: 11, lineHeight: 16, marginTop: -7 },
   topUpPresets: { flexDirection: 'row', gap: 7 },
-  topUpPreset: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 11, backgroundColor: '#eaf5e9' },
+  topUpPreset: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 11, backgroundColor: '#eaf5e9' },
   topUpPresetText: { color: '#168344', fontSize: 10, fontWeight: '800' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 17 },
   modalTitleCopy: { flex: 1, gap: 4 },
   modalEyebrow: { color: '#168344', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   modalTitle: { color: '#193d27', fontSize: 21, fontWeight: '800' },
-  modalClose: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#eaf0e9' },
+  modalClose: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#eaf0e9' },
   modalFields: { gap: 8, paddingBottom: 12 },
   fieldLabel: { color: '#33443a', fontSize: 12, fontWeight: '700', marginTop: 3 },
   formInput: { minHeight: 46, paddingHorizontal: 13, borderRadius: 13, borderWidth: 1, borderColor: '#dce5dc', backgroundColor: '#ffffff', color: '#17251c', fontSize: 14 },

@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, Link, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/contexts/auth-context';
-import { obtenerCompra } from '@/repositories/compraRepository';
+import { InformacionPagoCompra, obtenerCompra, obtenerInformacionPagoCompra } from '@/repositories/compraRepository';
 import { Compra, DetalleCompra } from '@/types/database';
 import { generarPdfFactura } from '@/utils/invoice-pdf';
 import { ProductImage } from '@/components/product-image';
+import { AppLogo } from '@/components/app-logo';
 
 const currency = (amount: number) => `$${Number(amount || 0).toLocaleString('es-CO')}`;
 
@@ -15,6 +16,9 @@ export default function FacturaScreen() {
   const { user } = useAuth();
   const [purchase, setPurchase] = useState<Compra | null>(null);
   const [loading, setLoading] = useState(true);
+  const [payment, setPayment] = useState<InformacionPagoCompra | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState('');
   const [pdfError, setPdfError] = useState('');
@@ -47,15 +51,52 @@ export default function FacturaScreen() {
     return () => { active = false; };
   }, [id, user]);
 
+  useEffect(() => {
+    let active = true;
+    async function loadPayment() {
+      if (!purchase || !user) {
+        setPayment(null);
+        setPaymentError('');
+        setPaymentLoading(false);
+        return;
+      }
+
+      const purchaseId = purchase.id_compra;
+      const userId = user.id_usuario;
+      setPayment(null);
+      setPaymentError('');
+      setPaymentLoading(true);
+      try {
+        const result = await obtenerInformacionPagoCompra(purchaseId, userId);
+        if (active) setPayment(result);
+      } catch (err) {
+        console.error('No se pudo cargar la información de pago de la factura:', err);
+        if (active) setPaymentError('No se pudo cargar la información del pago. El detalle de la compra sigue disponible.');
+      } finally {
+        if (active) setPaymentLoading(false);
+      }
+    }
+    void loadPayment();
+    return () => { active = false; };
+  }, [purchase, user]);
+
   const downloadPdf = async () => {
     if (!purchase || !user || pdfBusy) return;
     setPdfBusy(true);
     setPdfError('');
     try {
-      await generarPdfFactura(purchase, `${user.nombre} ${user.apellido}`);
+      await generarPdfFactura(purchase, {
+        nombre: `${user.nombre} ${user.apellido}`,
+        correo: user.correo,
+        telefono: user.telefono,
+      }, payment ?? undefined);
     } catch (err) {
       console.error('No se pudo generar o compartir el PDF:', err);
-      setPdfError('No se pudo generar el PDF. Intenta de nuevo.');
+      setPdfError(
+        err instanceof Error && err.message.includes('ventana de impresión')
+          ? 'El navegador bloqueó la factura. Permite las ventanas emergentes e inténtalo de nuevo.'
+          : 'No se pudo generar el PDF. Intenta de nuevo.'
+      );
     } finally {
       setPdfBusy(false);
     }
@@ -69,53 +110,109 @@ export default function FacturaScreen() {
           style={styles.backButton}
           accessibilityRole="button"
           accessibilityLabel="Volver al historial"
+          accessibilityHint="Regresa a tus compras"
+          hitSlop={8}
         >
           <Ionicons name="arrow-back" size={20} color="#166534" />
         </Pressable>
-        <Text style={styles.topTitle}>Detalle de factura</Text>
+        <Text style={styles.topTitle} accessibilityRole="header">Detalle de factura</Text>
       </View>
 
       {!user ? (
         <View style={styles.stateCard}><Ionicons name="person-outline" size={30} color="#16a34a" /><Text style={styles.cardTitle}>Inicia sesión para ver la factura</Text><Link href="/login" style={styles.loginButton}>Iniciar sesión</Link></View>
       ) : loading ? (
-        <View style={styles.stateCard}><ActivityIndicator color="#16a34a" /><Text style={styles.bodyText}>Cargando factura…</Text></View>
+        <View style={styles.stateCard} accessibilityLiveRegion="polite"><ActivityIndicator color="#16a34a" accessibilityLabel="Cargando factura" /><Text style={styles.bodyText}>Cargando factura…</Text></View>
       ) : error || !purchase ? (
-        <View style={styles.stateCard}><Ionicons name="alert-circle-outline" size={30} color="#dc2626" /><Text style={styles.cardTitle}>Factura no disponible</Text><Text style={styles.bodyText}>{error || 'No encontramos la factura solicitada.'}</Text></View>
+        <View style={styles.stateCard} accessibilityRole="alert"><Ionicons name="alert-circle-outline" size={30} color="#dc2626" /><Text style={styles.cardTitle} accessibilityRole="header">Factura no disponible</Text><Text style={styles.bodyText}>{error || 'No encontramos la factura solicitada.'}</Text></View>
       ) : (
         <>
           <View style={styles.invoiceHeader}>
-            <View style={styles.invoiceIcon}><Ionicons name="receipt" size={25} color="#15803d" /></View>
-            <Text style={styles.invoiceTitle}>Factura de compra</Text>
+            <AppLogo size={52} style={styles.invoiceIcon} />
+            <Text style={styles.invoiceTitle} accessibilityRole="header">Factura de compra</Text>
             <Text style={styles.invoiceNumber}>{purchase.numero_factura}</Text>
             <Text style={styles.invoiceMeta}>{new Date(purchase.fecha_compra).toLocaleString('es-CO')}</Text>
+            <Text style={styles.invoiceMeta}>Referencia interna #{purchase.id_compra}</Text>
             <View style={styles.listTag}><Ionicons name="list-outline" size={14} color="#166534" /><Text style={styles.listName}>{purchase.nombre_lista}</Text></View>
           </View>
 
+          <View style={styles.infoCard}>
+            <Text style={styles.sectionTitle} accessibilityRole="header">Información de la compra</Text>
+            <InfoRow label="Comprador" value={`${user.nombre} ${user.apellido}`} />
+            <InfoRow label="Correo" value={user.correo} />
+            <InfoRow label="Teléfono" value={user.telefono || 'No registrado'} />
+            <InfoRow label="ID de lista" value={purchase.id_lista == null ? 'No disponible' : String(purchase.id_lista)} />
+            <InfoRow label="Productos distintos" value={String(purchase.detalles.length)} />
+            <InfoRow label="Unidades totales" value={purchase.detalles.reduce((sum, item) => sum + Number(item.cantidad), 0).toLocaleString('es-CO')} />
+            <InfoRow
+              label="Comercios"
+              value={[...new Set(purchase.detalles.map((item) => item.nombre_comercio).filter(Boolean))].join(', ') || 'No especificados'}
+            />
+          </View>
+
           <View style={styles.itemsCard}>
-            <Text style={styles.sectionTitle}>Productos comprados</Text>
+            <Text style={styles.sectionTitle} accessibilityRole="header">Productos comprados</Text>
             {purchase.detalles.map((item, index) => <InvoiceItem key={`${item.id_producto}-${index}`} item={item} />)}
+          </View>
+
+          <View style={styles.infoCard}>
+            <Text style={styles.sectionTitle} accessibilityRole="header">Información de pago</Text>
+            {paymentLoading ? (
+              <View style={styles.paymentLoading} accessibilityLiveRegion="polite">
+                <ActivityIndicator size="small" color="#16a34a" accessibilityLabel="Cargando información de pago" />
+                <Text style={styles.infoValue}>Consultando registro de pago…</Text>
+              </View>
+            ) : (
+              <>
+                <InfoRow label="Método registrado" value={payment?.metodo || 'No disponible en el registro'} />
+                {payment?.referencia ? <InfoRow label="Referencia de pago" value={payment.referencia} /> : null}
+              </>
+            )}
+            {paymentError ? (
+              <View style={styles.paymentError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+                <Ionicons name="alert-circle-outline" size={17} color="#b91c1c" />
+                <Text style={styles.errorText}>{paymentError}</Text>
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.totalsCard}>
             <TotalRow label="Subtotal antes de descuentos" value={currency(purchase.subtotal)} />
             <TotalRow label="Descuentos" value={`− ${currency(purchase.descuento)}`} highlight={purchase.descuento > 0} />
+            <TotalRow label="Impuestos" value="No calculados" />
             <View style={styles.divider} />
             <TotalRow label="Total de la compra" value={currency(purchase.total)} strong />
           </View>
 
           <View style={styles.disclaimer}>
             <Ionicons name="information-circle-outline" size={18} color="#a16207" />
-            <Text style={styles.disclaimerText}>Los descuentos mostrados son promociones demostrativas calculadas con los precios de referencia del catálogo. Este comprobante no reemplaza la factura fiscal del comercio.</Text>
+            <Text style={styles.disclaimerText}>Los descuentos mostrados son promociones demostrativas calculadas con los precios de referencia del catálogo. Los impuestos no se calculan. Este comprobante y su logotipo son informativos: no certifican el pago ni otorgan validez fiscal o legal, y no reemplazan la factura emitida por el comercio.</Text>
           </View>
 
-          {pdfError ? <View style={styles.errorBanner}><Ionicons name="alert-circle-outline" size={17} color="#b91c1c" /><Text style={styles.errorText}>{pdfError}</Text></View> : null}
-          <Pressable onPress={() => void downloadPdf()} disabled={pdfBusy} style={[styles.pdfButton, pdfBusy && styles.disabledButton]} accessibilityRole="button">
+          {pdfError ? <View style={styles.errorBanner} accessibilityRole="alert" accessibilityLiveRegion="polite"><Ionicons name="alert-circle-outline" size={17} color="#b91c1c" /><Text style={styles.errorText}>{pdfError}</Text></View> : null}
+          <Pressable
+            onPress={() => void downloadPdf()}
+            disabled={pdfBusy}
+            style={[styles.pdfButton, pdfBusy && styles.disabledButton]}
+            accessibilityRole="button"
+            accessibilityLabel={pdfBusy ? 'Preparando factura en PDF' : Platform.OS === 'web' ? 'Abrir factura para imprimir o guardar como PDF' : 'Generar y compartir factura en PDF'}
+            accessibilityHint={Platform.OS === 'web' ? 'Abre la factura para imprimirla o guardarla como PDF en el navegador' : 'Genera un documento PDF y abre las opciones para compartirlo'}
+            accessibilityState={{ disabled: pdfBusy, busy: pdfBusy }}
+          >
             {pdfBusy ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="download-outline" size={19} color="#ffffff" />}
-            <Text style={styles.pdfButtonText}>{pdfBusy ? 'Preparando factura…' : 'Generar y compartir PDF'}</Text>
+            <Text style={styles.pdfButtonText}>{pdfBusy ? 'Preparando factura…' : Platform.OS === 'web' ? 'Imprimir o guardar como PDF' : 'Generar y compartir PDF'}</Text>
           </Pressable>
         </>
       )}
     </ScrollView>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -159,12 +256,18 @@ const styles = StyleSheet.create({
   bodyText: { color: '#64748b', fontSize: 12, textAlign: 'center' },
   loginButton: { color: '#ffffff', backgroundColor: '#16a34a', paddingHorizontal: 17, paddingVertical: 11, borderRadius: 12, overflow: 'hidden', fontSize: 13, fontWeight: '700' },
   invoiceHeader: { alignItems: 'center', padding: 20, gap: 5, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },
-  invoiceIcon: { width: 52, height: 52, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#dcfce7', marginBottom: 5 },
+  invoiceIcon: { marginBottom: 5 },
   invoiceTitle: { color: '#14532d', fontSize: 20, fontWeight: '800' },
   invoiceNumber: { color: '#334155', fontSize: 12, fontWeight: '700' },
   invoiceMeta: { color: '#64748b', fontSize: 11 },
   listTag: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, marginTop: 5, borderRadius: 20, backgroundColor: '#f0fdf4' },
   listName: { color: '#166534', fontSize: 11, fontWeight: '700' },
+  infoCard: { padding: 15, gap: 8, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  infoLabel: { flex: 1, color: '#64748b', fontSize: 11 },
+  infoValue: { flex: 1.5, color: '#334155', fontSize: 11, fontWeight: '600', textAlign: 'right' },
+  paymentLoading: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  paymentError: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 4, padding: 10, borderRadius: 11, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca' },
   itemsCard: { padding: 15, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },
   sectionTitle: { color: '#14532d', fontSize: 15, fontWeight: '800', marginBottom: 6 },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9' },

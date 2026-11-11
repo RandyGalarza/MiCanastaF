@@ -29,6 +29,11 @@ export interface PagoPendiente {
   fecha_creacion: string;
 }
 
+export interface InformacionPagoCompra {
+  metodo: string;
+  referencia: string | null;
+}
+
 interface PreparedPurchase {
   detalles: DetalleCompra[];
   subtotal: number;
@@ -416,6 +421,35 @@ export async function obtenerCompra(id_compra: number, id_usuario: number): Prom
   return row ? deserializeCompra(row) : null;
 }
 
+export async function obtenerInformacionPagoCompra(
+  id_compra: number,
+  id_usuario: number
+): Promise<InformacionPagoCompra> {
+  if (!Number.isInteger(id_compra) || id_compra <= 0 || !Number.isInteger(id_usuario) || id_usuario <= 0) {
+    throw new Error('No se pudo consultar la información del pago.');
+  }
+
+  const db = await getDatabase();
+  const [walletMovement, demoPayment] = await Promise.all([
+    db.getFirstAsync<Pick<MovimientoSaldo, 'id_movimiento'>>(
+      "SELECT id_movimiento FROM movimientos_saldo WHERE id_compra = ? AND id_usuario = ? AND tipo = 'compra'",
+      [id_compra, id_usuario]
+    ),
+    db.getFirstAsync<Pick<PagoPendiente, 'referencia'>>(
+      "SELECT referencia FROM pagos_pendientes WHERE id_compra = ? AND id_usuario = ? AND estado = 'pagado'",
+      [id_compra, id_usuario]
+    ),
+  ]);
+
+  if (walletMovement) {
+    return { metodo: 'Saldo de la app (demostración)', referencia: null };
+  }
+  if (demoPayment) {
+    return { metodo: 'Referencia de pago simulada', referencia: demoPayment.referencia };
+  }
+  return { metodo: 'No disponible en el registro', referencia: null };
+}
+
 export async function obtenerVentasComercio(id_comercio: number): Promise<VentaComercio[]> {
   const db = await getDatabase();
   const [rows, comercios] = await Promise.all([
@@ -456,4 +490,50 @@ export async function obtenerResumenComprasSistema(): Promise<{ cantidad: number
     cantidad: rows.length,
     total: rows.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0),
   };
+}
+
+export async function obtenerPopularidadProductos(): Promise<
+  Record<number, { unidadesVendidas: number; comprasRegistradas: number }>
+> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<Pick<Compra, 'detalles_json'>>(
+    'SELECT detalles_json FROM compras'
+  );
+  const popularidad: Record<number, { unidadesVendidas: number; comprasRegistradas: number }> = {};
+
+  for (const row of rows) {
+    let detalles: unknown;
+    try {
+      detalles = JSON.parse(row.detalles_json);
+    } catch (error) {
+      console.warn('Se omitió una compra con detalle JSON inválido al calcular popularidad:', error);
+      continue;
+    }
+    if (!Array.isArray(detalles)) {
+      console.warn('Se omitió una compra con detalle inválido al calcular popularidad.');
+      continue;
+    }
+
+    const productosEnCompra = new Set<number>();
+    for (const detalle of detalles) {
+      if (typeof detalle !== 'object' || detalle === null) continue;
+      const item = detalle as Record<string, unknown>;
+      const idProducto = Number(item.id_producto);
+      const cantidad = Number(item.cantidad);
+      if (!Number.isInteger(idProducto) || idProducto <= 0 || !Number.isFinite(cantidad) || cantidad <= 0) {
+        continue;
+      }
+
+      const resumen = popularidad[idProducto] ?? { unidadesVendidas: 0, comprasRegistradas: 0 };
+      resumen.unidadesVendidas += cantidad;
+      popularidad[idProducto] = resumen;
+      productosEnCompra.add(idProducto);
+    }
+
+    for (const idProducto of productosEnCompra) {
+      popularidad[idProducto].comprasRegistradas += 1;
+    }
+  }
+
+  return popularidad;
 }

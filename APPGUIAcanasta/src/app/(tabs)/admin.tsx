@@ -132,7 +132,7 @@ export default function AdminScreen() {
           <View style={styles.restrictedIconWrapper}>
             <Ionicons name="lock-closed" size={48} color="#dc2626" />
           </View>
-          <Text style={styles.restrictedTitle}>Acceso Restringido</Text>
+          <Text style={styles.restrictedTitle} accessibilityRole="header">Acceso Restringido</Text>
           <Text style={styles.restrictedDesc}>
             Este módulo es de uso exclusivo para Administradores de Mi Canasta Familiar.
           </Text>
@@ -326,13 +326,13 @@ export default function AdminScreen() {
         <View style={styles.headerCopy}>
           <View style={styles.adminTitleRow}>
             <Ionicons name="shield-checkmark" size={24} color="#16a34a" />
-            <Text style={styles.headerTitle}>Panel Administrativo</Text>
+            <Text style={styles.headerTitle} accessibilityRole="header">Panel Administrativo</Text>
           </View>
           <Text style={styles.headerSubtitle}>
             Usuarios, comercios, catálogo y actividad de compras
           </Text>
         </View>
-        <TouchableOpacity onPress={() => void cargarDatos()} disabled={cargando} style={styles.refreshButton} accessibilityRole="button" accessibilityLabel="Actualizar resumen administrativo">
+        <TouchableOpacity onPress={() => void cargarDatos()} disabled={cargando} style={styles.refreshButton} accessibilityRole="button" accessibilityLabel={cargando ? 'Actualizando resumen administrativo' : 'Actualizar resumen administrativo'} accessibilityHint="Vuelve a cargar los datos del panel" accessibilityState={{ disabled: cargando, busy: cargando }} hitSlop={6}>
           <Ionicons name="refresh-outline" size={19} color="#166534" />
         </TouchableOpacity>
       </View>
@@ -359,8 +359,10 @@ export default function AdminScreen() {
           placeholderTextColor="#94a3b8"
           style={styles.searchInput}
           returnKeyType="search"
+          accessibilityLabel={`Buscar ${activeTab === 'comercios' ? 'comercios' : activeTab === 'usuarios' ? 'usuarios' : 'categorías'}`}
+          accessibilityHint="Filtra los resultados del panel administrativo"
         />
-        {busqueda ? <TouchableOpacity onPress={() => setBusqueda('')} accessibilityRole="button" accessibilityLabel="Limpiar búsqueda"><Ionicons name="close-circle" size={18} color="#94a3b8" /></TouchableOpacity> : null}
+        {busqueda ? <TouchableOpacity onPress={() => setBusqueda('')} accessibilityRole="button" accessibilityLabel="Limpiar búsqueda" hitSlop={8}><Ionicons name="close-circle" size={18} color="#94a3b8" /></TouchableOpacity> : null}
       </View>
 
       {/* Selector de Pestañas */}
@@ -368,6 +370,9 @@ export default function AdminScreen() {
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'comercios' && styles.tabButtonActive]}
           onPress={() => setActiveTab('comercios')}
+          accessibilityRole="tab"
+          accessibilityLabel={`Comercios, ${comercios.length}`}
+          accessibilityState={{ selected: activeTab === 'comercios' }}
         >
           <Ionicons
             name="storefront-outline"
@@ -384,6 +389,9 @@ export default function AdminScreen() {
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'usuarios' && styles.tabButtonActive]}
           onPress={() => setActiveTab('usuarios')}
+          accessibilityRole="tab"
+          accessibilityLabel={`Usuarios, ${usuarios.length}`}
+          accessibilityState={{ selected: activeTab === 'usuarios' }}
         >
           <Ionicons
             name="people-outline"
@@ -400,6 +408,9 @@ export default function AdminScreen() {
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'categorias' && styles.tabButtonActive]}
           onPress={() => setActiveTab('categorias')}
+          accessibilityRole="tab"
+          accessibilityLabel={`Categorías, ${categorias.length}`}
+          accessibilityState={{ selected: activeTab === 'categorias' }}
         >
           <Ionicons
             name="pricetags-outline"
@@ -415,8 +426,8 @@ export default function AdminScreen() {
       </View>
 
       {cargando ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#16a34a" />
+        <View style={styles.centerContainer} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="large" color="#16a34a" accessibilityLabel="Cargando datos administrativos" />
           <Text style={styles.loadingText}>Cargando datos...</Text>
         </View>
       ) : (
@@ -425,10 +436,12 @@ export default function AdminScreen() {
           {activeTab === 'comercios' && (
             <View>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Comercios Afiliados</Text>
+                <Text style={styles.sectionTitle} accessibilityRole="header">Comercios Afiliados</Text>
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={abrirNuevoComercio}
+                  accessibilityRole="button"
+                  accessibilityLabel="Registrar comercio nuevo"
                 >
                   <Ionicons name="add" size={18} color="#fff" />
                   <Text style={styles.actionBtnText}>Nuevo Comercio</Text>
@@ -444,7 +457,7 @@ export default function AdminScreen() {
                       <Ionicons name="storefront" size={22} color="#16a34a" />
                     </View>
                     <View style={styles.itemInfo}>
-                      <Text style={styles.itemName}>{c.nombre}</Text>
+                      <Text style={styles.itemName} accessibilityRole="header">{c.nombre}</Text>
                       {c.tipo_comercio && (
                         <Text style={styles.itemSub}>{c.tipo_comercio}</Text>
                       )}
@@ -456,10 +469,10 @@ export default function AdminScreen() {
                       )}
                     </View>
                     <View style={styles.itemActions}>
-                      <TouchableOpacity onPress={() => abrirEdicionComercio(c)} style={styles.itemEditBtn} accessibilityRole="button" accessibilityLabel={`Editar ${c.nombre}`}>
+                      <TouchableOpacity onPress={() => abrirEdicionComercio(c)} style={styles.itemEditBtn} accessibilityRole="button" accessibilityLabel={`Editar ${c.nombre}`} accessibilityHint="Abre el formulario de edición" hitSlop={6}>
                         <Ionicons name="create-outline" size={19} color="#166534" />
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={() => handleEliminarComercio(c)} style={styles.itemDeleteBtn} accessibilityRole="button" accessibilityLabel={`Dar de baja ${c.nombre}`}>
+                      <TouchableOpacity onPress={() => handleEliminarComercio(c)} style={styles.itemDeleteBtn} accessibilityRole="button" accessibilityLabel={`Dar de baja ${c.nombre}`} accessibilityHint="Abre una confirmación antes de darlo de baja" hitSlop={6}>
                         <Ionicons name="trash-outline" size={19} color="#dc2626" />
                       </TouchableOpacity>
                     </View>
@@ -473,7 +486,7 @@ export default function AdminScreen() {
           {activeTab === 'usuarios' && (
             <View>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Usuarios del Sistema</Text>
+                <Text style={styles.sectionTitle} accessibilityRole="header">Usuarios del Sistema</Text>
               </View>
 
               {usuariosVisibles.length === 0 ? (
@@ -516,7 +529,7 @@ export default function AdminScreen() {
                       </View>
                       <View style={styles.itemInfo}>
                         <View style={styles.userNameRow}>
-                          <Text style={styles.itemName}>
+                          <Text style={styles.itemName} accessibilityRole="header">
                             {u.nombre} {u.apellido}
                           </Text>
                           <View
@@ -561,6 +574,10 @@ export default function AdminScreen() {
                         <TouchableOpacity
                           onPress={() => handleDarBajaUsuario(u)}
                           style={styles.itemDeleteBtn}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Dar de baja a ${u.nombre} ${u.apellido}`}
+                          accessibilityHint="Abre una confirmación antes de desactivar la cuenta"
+                          hitSlop={6}
                         >
                           <Ionicons name="person-remove-outline" size={19} color="#dc2626" />
                         </TouchableOpacity>
@@ -576,10 +593,12 @@ export default function AdminScreen() {
           {activeTab === 'categorias' && (
             <View>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Categorías de Productos</Text>
+                <Text style={styles.sectionTitle} accessibilityRole="header">Categorías de Productos</Text>
                 <TouchableOpacity
                   style={styles.actionBtn}
                   onPress={() => setModalCategoria(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Crear nueva categoría"
                 >
                   <Ionicons name="add" size={18} color="#fff" />
                   <Text style={styles.actionBtnText}>Nueva Categoría</Text>
@@ -595,12 +614,16 @@ export default function AdminScreen() {
                       <Ionicons name="pricetag" size={22} color="#16a34a" />
                     </View>
                     <View style={styles.itemInfo}>
-                      <Text style={styles.itemName}>{cat.descripcion}</Text>
+                      <Text style={styles.itemName} accessibilityRole="header">{cat.descripcion}</Text>
                       <Text style={styles.itemDetail}>ID: #{cat.id_categoria}</Text>
                     </View>
                     <TouchableOpacity
                       onPress={() => handleEliminarCategoria(cat)}
                       style={styles.itemDeleteBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Eliminar categoría ${cat.descripcion}`}
+                      accessibilityHint="Abre una confirmación antes de eliminar"
+                      hitSlop={6}
                     >
                       <Ionicons name="trash-outline" size={19} color="#dc2626" />
                     </TouchableOpacity>
@@ -620,10 +643,10 @@ export default function AdminScreen() {
         onRequestClose={() => setModalComercio(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={styles.modalCard} accessibilityViewIsModal>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{comercioEnEdicion ? 'Editar Comercio' : 'Registrar Comercio'}</Text>
-              <TouchableOpacity onPress={() => setModalComercio(false)}>
+              <Text style={styles.modalTitle} accessibilityRole="header">{comercioEnEdicion ? 'Editar Comercio' : 'Registrar Comercio'}</Text>
+              <TouchableOpacity onPress={() => setModalComercio(false)} accessibilityRole="button" accessibilityLabel="Cerrar formulario de comercio" hitSlop={8}>
                 <Ionicons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
@@ -635,6 +658,8 @@ export default function AdminScreen() {
                 placeholder="Ej. Supermercado Éxito"
                 value={comNombre}
                 onChangeText={setComNombre}
+                accessibilityLabel="Nombre del comercio"
+                accessibilityHint="Campo obligatorio"
               />
 
               <Text style={styles.fieldLabel}>Tipo de Comercio</Text>
@@ -643,6 +668,7 @@ export default function AdminScreen() {
                 placeholder="Ej. Supermercado, Tienda de Barrio, Mayorista"
                 value={comTipo}
                 onChangeText={setComTipo}
+                accessibilityLabel="Tipo de comercio"
               />
 
               <Text style={styles.fieldLabel}>Dirección</Text>
@@ -651,6 +677,7 @@ export default function AdminScreen() {
                 placeholder="Ej. Calle 45 # 12-34"
                 value={comDireccion}
                 onChangeText={setComDireccion}
+                accessibilityLabel="Dirección del comercio"
               />
 
               <Text style={styles.fieldLabel}>Teléfono</Text>
@@ -660,6 +687,7 @@ export default function AdminScreen() {
                 keyboardType="phone-pad"
                 value={comTelefono}
                 onChangeText={setComTelefono}
+                accessibilityLabel="Teléfono del comercio"
               />
             </ScrollView>
 
@@ -667,6 +695,8 @@ export default function AdminScreen() {
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setModalComercio(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cancelar formulario de comercio"
               >
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
@@ -674,6 +704,9 @@ export default function AdminScreen() {
                 style={styles.saveButton}
                 onPress={handleGuardarComercio}
                 disabled={guardando}
+                accessibilityRole="button"
+                accessibilityLabel={guardando ? 'Guardando comercio' : comercioEnEdicion ? 'Guardar cambios del comercio' : 'Guardar comercio'}
+                accessibilityState={{ disabled: guardando, busy: guardando }}
               >
                 {guardando ? (
                   <ActivityIndicator color="#fff" />
@@ -694,10 +727,10 @@ export default function AdminScreen() {
         onRequestClose={() => setModalCategoria(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={styles.modalCard} accessibilityViewIsModal>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Nueva Categoría</Text>
-              <TouchableOpacity onPress={() => setModalCategoria(false)}>
+              <Text style={styles.modalTitle} accessibilityRole="header">Nueva Categoría</Text>
+              <TouchableOpacity onPress={() => setModalCategoria(false)} accessibilityRole="button" accessibilityLabel="Cerrar formulario de categoría" hitSlop={8}>
                 <Ionicons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
@@ -708,12 +741,16 @@ export default function AdminScreen() {
               placeholder="Ej. Frutas y Verduras, Granos, Lácteos"
               value={catDescripcion}
               onChangeText={setCatDescripcion}
+              accessibilityLabel="Descripción de la categoría"
+              accessibilityHint="Campo obligatorio"
             />
 
             <View style={styles.modalFooter}>
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setModalCategoria(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cancelar formulario de categoría"
               >
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
@@ -721,6 +758,9 @@ export default function AdminScreen() {
                 style={styles.saveButton}
                 onPress={handleCrearCategoria}
                 disabled={guardando}
+                accessibilityRole="button"
+                accessibilityLabel={guardando ? 'Guardando categoría' : 'Guardar categoría'}
+                accessibilityState={{ disabled: guardando, busy: guardando }}
               >
                 {guardando ? (
                   <ActivityIndicator color="#fff" />
@@ -777,7 +817,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   headerCopy: { flex: 1 },
-  refreshButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#dcfce7' },
+  refreshButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#dcfce7' },
   adminTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -960,10 +1000,14 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   itemDeleteBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 8,
   },
   itemActions: { flexDirection: 'row', alignItems: 'center' },
-  itemEditBtn: { padding: 8 },
+  itemEditBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', padding: 8 },
   // Modal styles
   modalOverlay: {
     flex: 1,

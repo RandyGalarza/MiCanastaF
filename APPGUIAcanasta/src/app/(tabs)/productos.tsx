@@ -16,8 +16,9 @@ import {
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
-import { Producto, Comercio, Categoria } from '@/types/database';
+import { Producto, Comercio, Categoria, ListaCompra } from '@/types/database';
 import {
   crearProducto,
   obtenerProductos,
@@ -27,9 +28,20 @@ import {
 import { guardarOActualizarPrecio } from '@/repositories/precioRepository';
 import { obtenerComercios } from '@/repositories/comercioRepository';
 import { obtenerCategorias } from '@/repositories/categoriaRepository';
+import {
+  agregarProductoALista,
+  crearListaCompraConProducto,
+  obtenerListasCompra,
+} from '@/repositories/listacompraRepository';
 import { Toast, ToastType } from '@/components/toast';
 import { ProductImage } from '@/components/product-image';
 import { getDemoDiscount } from '@/utils/demo-prices';
+import { getDemoProductRating } from '@/utils/demo-product-ratings';
+import {
+  guardarCalificacionProducto,
+  obtenerResumenCalificaciones,
+  ResumenCalificacionProducto,
+} from '@/repositories/calificacionProductoRepository';
 
 const UNIDADES_COMUNES = [
   'Unidad',
@@ -109,6 +121,8 @@ export default function ProductosScreen() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [comercios, setComercios] = useState<Comercio[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [calificaciones, setCalificaciones] = useState<Record<number, ResumenCalificacionProducto>>({});
+  const [calificandoProducto, setCalificandoProducto] = useState<number | null>(null);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState('');
   const [filtrosVisibles, setFiltrosVisibles] = useState(false);
@@ -116,6 +130,13 @@ export default function ProductosScreen() {
   const [comerciosFiltro, setComerciosFiltro] = useState<number[]>([]);
   const [soloConPrecio, setSoloConPrecio] = useState(false);
   const [ordenProductos, setOrdenProductos] = useState<OrdenProductos>('relevancia');
+  const [expandedProductId, setExpandedProductId] = useState<number | null>(null);
+  const [addToListVisible, setAddToListVisible] = useState(false);
+  const [productToAdd, setProductToAdd] = useState<Producto | null>(null);
+  const [shoppingLists, setShoppingLists] = useState<ListaCompra[]>([]);
+  const [loadingShoppingLists, setLoadingShoppingLists] = useState(false);
+  const [addingProductToList, setAddingProductToList] = useState(false);
+  const [newShoppingListName, setNewShoppingListName] = useState('');
 
   // Filtro para usuarios comercio: ver todos o ver solo los suyos
   const [soloMisProductos, setSoloMisProductos] = useState(false);
@@ -170,36 +191,40 @@ export default function ProductosScreen() {
   const cargarDatos = useCallback(async () => {
     try {
       setCargando(true);
-      const [prods, coms, cats] = await Promise.all([
+      const [prods, coms, cats, ratings] = await Promise.all([
         obtenerProductos(),
         obtenerComercios(),
         obtenerCategorias(),
+        obtenerResumenCalificaciones(user?.id_usuario),
       ]);
       setProductos(prods || []);
       setComercios(coms || []);
       setCategorias(cats || []);
+      setCalificaciones(ratings);
     } catch (error) {
       console.error(error);
       showToast('Error cargando los productos', 'error');
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [user?.id_usuario]);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
         setCargando(true);
-        const [prods, coms, cats] = await Promise.all([
+        const [prods, coms, cats, ratings] = await Promise.all([
           obtenerProductos(),
           obtenerComercios(),
           obtenerCategorias(),
+          obtenerResumenCalificaciones(user?.id_usuario),
         ]);
         if (active) {
           setProductos(prods || []);
           setComercios(coms || []);
           setCategorias(cats || []);
+          setCalificaciones(ratings);
           if (cats && cats.length > 0) {
             setCategoriaSeleccionada(cats[0].id_categoria);
           }
@@ -217,7 +242,91 @@ export default function ProductosScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [user?.id_usuario]);
+
+  const calificarProducto = async (id_producto: number, puntuacion: number) => {
+    if (!user) {
+      showToast('Inicia sesión para calificar productos', 'error');
+      return;
+    }
+
+    try {
+      setCalificandoProducto(id_producto);
+      await guardarCalificacionProducto(user.id_usuario, id_producto, puntuacion);
+      setCalificaciones(await obtenerResumenCalificaciones(user.id_usuario));
+    } catch (error) {
+      console.error('No se pudo guardar la calificación:', error);
+      showToast(error instanceof Error ? error.message : 'No se pudo guardar la calificación', 'error');
+    } finally {
+      setCalificandoProducto(null);
+    }
+  };
+
+  const openAddToList = async (product: Producto) => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    setProductToAdd(product);
+    setShoppingLists([]);
+    setNewShoppingListName('');
+    setAddToListVisible(true);
+    setLoadingShoppingLists(true);
+    try {
+      setShoppingLists(await obtenerListasCompra(user.id_usuario));
+    } catch (error) {
+      console.error('No se pudieron cargar las listas de compra:', error);
+      setAddToListVisible(false);
+      setProductToAdd(null);
+      showToast('No se pudieron cargar tus listas. Intenta de nuevo.', 'error');
+    } finally {
+      setLoadingShoppingLists(false);
+    }
+  };
+
+  const closeAddToList = () => {
+    if (addingProductToList) return;
+    setAddToListVisible(false);
+    setProductToAdd(null);
+  };
+
+  const addProductToExistingList = async (list: ListaCompra) => {
+    if (!user || !productToAdd || addingProductToList) return;
+
+    setAddingProductToList(true);
+    try {
+      await agregarProductoALista(list.id_lista, productToAdd.id_producto);
+      setAddToListVisible(false);
+      showToast(`${productToAdd.nombre} se agregó a ${list.nombre}.`, 'success');
+      setProductToAdd(null);
+    } catch (error) {
+      console.error('No se pudo agregar el producto a la lista:', error);
+      showToast(error instanceof Error ? error.message : 'No se pudo agregar el producto a la lista.', 'error');
+    } finally {
+      setAddingProductToList(false);
+    }
+  };
+
+  const createListAndAddProduct = async () => {
+    if (!user || !productToAdd || addingProductToList) return;
+    const name = newShoppingListName.trim();
+    if (!name) return;
+
+    setAddingProductToList(true);
+    try {
+      await crearListaCompraConProducto(user.id_usuario, name, productToAdd.id_producto);
+      setAddToListVisible(false);
+      showToast(`${productToAdd.nombre} se agregó a ${name}.`, 'success');
+      setProductToAdd(null);
+      setNewShoppingListName('');
+    } catch (error) {
+      console.error('No se pudo crear una lista con el producto:', error);
+      showToast(error instanceof Error ? error.message : 'No se pudo crear la lista.', 'error');
+    } finally {
+      setAddingProductToList(false);
+    }
+  };
 
   const seleccionarImagen = async () => {
     try {
@@ -516,16 +625,116 @@ export default function ProductosScreen() {
       />
 
       <Modal
+        visible={addToListVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={closeAddToList}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.addToListModal} accessibilityViewIsModal>
+            <View style={styles.modalHeader}>
+              <View style={styles.addToListHeaderCopy}>
+                <Text style={styles.modalTitle} accessibilityRole="header">Agregar a una lista</Text>
+                <Text style={styles.addToListProductName}>{productToAdd?.nombre}</Text>
+              </View>
+              <TouchableOpacity
+                onPress={closeAddToList}
+                disabled={addingProductToList}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar selección de lista"
+                accessibilityState={{ disabled: addingProductToList }}
+                hitSlop={8}
+                style={styles.closeFiltersButton}
+              >
+                <Ionicons name="close" size={22} color="#475569" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.filterSectionTitle} accessibilityRole="header">Tus listas de compra</Text>
+            {loadingShoppingLists ? (
+              <View style={styles.addToListLoading} accessibilityLiveRegion="polite">
+                <ActivityIndicator color="#16a34a" accessibilityLabel="Cargando tus listas de compra" />
+                <Text style={styles.filterModalSubtitle}>Cargando listas…</Text>
+              </View>
+            ) : shoppingLists.length > 0 ? (
+              <ScrollView
+                style={styles.addToListList}
+                contentContainerStyle={styles.addToListListContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                {shoppingLists.map((list) => (
+                  <Pressable
+                    key={list.id_lista}
+                    onPress={() => void addProductToExistingList(list)}
+                    disabled={addingProductToList}
+                    style={[styles.addToListChoice, addingProductToList && styles.disabledButton]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Agregar ${productToAdd?.nombre} a ${list.nombre}`}
+                    accessibilityHint="Añade el producto a esta lista; si ya estaba, aumenta su cantidad"
+                    accessibilityState={{ disabled: addingProductToList, busy: addingProductToList }}
+                  >
+                    <Ionicons name="list-outline" size={19} color="#168344" />
+                    <Text style={styles.addToListChoiceName}>{list.nombre}</Text>
+                    <Ionicons name="add-circle-outline" size={20} color="#168344" />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={styles.filterModalSubtitle}>
+                Todavía no tienes listas. Crea una abajo para agregar este producto.
+              </Text>
+            )}
+
+            <View style={styles.createShoppingList}>
+              <Text style={styles.filterSectionTitle} accessibilityRole="header">O crea una lista nueva</Text>
+              <TextInput
+                value={newShoppingListName}
+                onChangeText={setNewShoppingListName}
+                placeholder="Ej. Mercado de la semana"
+                placeholderTextColor="#94a3b8"
+                style={styles.modalInput}
+                maxLength={60}
+                returnKeyType="done"
+                onSubmitEditing={() => void createListAndAddProduct()}
+                accessibilityLabel="Nombre de la nueva lista"
+                accessibilityHint="Escribe el nombre de la lista donde guardarás el producto"
+              />
+              <TouchableOpacity
+                onPress={() => void createListAndAddProduct()}
+                disabled={!newShoppingListName.trim() || addingProductToList || loadingShoppingLists}
+                style={[
+                  styles.saveButton,
+                  (!newShoppingListName.trim() || addingProductToList || loadingShoppingLists) && styles.disabledButton,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={addingProductToList ? 'Creando lista y agregando producto' : 'Crear lista y agregar producto'}
+                accessibilityState={{
+                  disabled: !newShoppingListName.trim() || addingProductToList || loadingShoppingLists,
+                  busy: addingProductToList,
+                }}
+              >
+                {addingProductToList ? (
+                  <ActivityIndicator color="#ffffff" accessibilityLabel="Guardando producto en la lista" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Crear lista y agregar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={filtrosVisibles}
         animationType="slide"
         transparent
         onRequestClose={() => setFiltrosVisibles(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.filterModalCard}>
+          <View style={styles.filterModalCard} accessibilityViewIsModal>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>Filtrar productos</Text>
+                <Text style={styles.modalTitle} accessibilityRole="header">Filtrar productos</Text>
                 <Text style={styles.filterModalSubtitle}>
                   Puedes elegir varias opciones y quitarlas cuando quieras
                 </Text>
@@ -534,6 +743,8 @@ export default function ProductosScreen() {
                 onPress={() => setFiltrosVisibles(false)}
                 accessibilityRole="button"
                 accessibilityLabel="Cerrar filtros"
+                accessibilityHint="Cierra el panel de filtros"
+                hitSlop={8}
                 style={styles.closeFiltersButton}
               >
                 <Ionicons name="close" size={22} color="#475569" />
@@ -545,12 +756,13 @@ export default function ProductosScreen() {
               contentContainerStyle={styles.filterModalContent}
               keyboardShouldPersistTaps="handled"
             >
-              <Text style={styles.filterSectionTitle}>Categoría</Text>
+              <Text style={styles.filterSectionTitle} accessibilityRole="header">Categoría</Text>
               <View style={styles.pickerRow}>
                 <TouchableOpacity
                   style={[styles.chip, categoriasFiltro.length === 0 && styles.chipSelected]}
                   onPress={() => setCategoriasFiltro([])}
                   accessibilityRole="button"
+                  accessibilityLabel="Todas las categorías"
                   accessibilityState={{ selected: categoriasFiltro.length === 0 }}
                 >
                   <Text style={[styles.chipText, categoriasFiltro.length === 0 && styles.chipTextSelected]}>
@@ -568,6 +780,7 @@ export default function ProductosScreen() {
                     ]}
                     onPress={() => alternarCategoriaFiltro(categoria.id_categoria)}
                     accessibilityRole="button"
+                    accessibilityLabel={`Filtrar por categoría ${categoria.descripcion}`}
                     accessibilityState={{ selected: seleccionada }}
                   >
                     <View style={styles.multiSelectChipContent}>
@@ -586,12 +799,13 @@ export default function ProductosScreen() {
                 })}
               </View>
 
-              <Text style={styles.filterSectionTitle}>Comercio</Text>
+              <Text style={styles.filterSectionTitle} accessibilityRole="header">Comercio</Text>
               <View style={styles.pickerRow}>
                 <TouchableOpacity
                   style={[styles.chip, comerciosFiltro.length === 0 && styles.chipSelected]}
                   onPress={() => setComerciosFiltro([])}
                   accessibilityRole="button"
+                  accessibilityLabel="Todos los comercios"
                   accessibilityState={{ selected: comerciosFiltro.length === 0 }}
                 >
                   <Text style={[styles.chipText, comerciosFiltro.length === 0 && styles.chipTextSelected]}>
@@ -609,6 +823,7 @@ export default function ProductosScreen() {
                     ]}
                     onPress={() => alternarComercioFiltro(comercio.id_comercio)}
                     accessibilityRole="button"
+                    accessibilityLabel={`Filtrar por comercio ${comercio.nombre}`}
                     accessibilityState={{ selected: seleccionado }}
                   >
                     <View style={styles.multiSelectChipContent}>
@@ -627,11 +842,13 @@ export default function ProductosScreen() {
                 })}
               </View>
 
-              <Text style={styles.filterSectionTitle}>Precio</Text>
+              <Text style={styles.filterSectionTitle} accessibilityRole="header">Precio</Text>
               <TouchableOpacity
                 style={styles.priceFilterOption}
                 onPress={() => setSoloConPrecio((actual) => !actual)}
                 accessibilityRole="checkbox"
+                accessibilityLabel="Mostrar solo productos con precio"
+                accessibilityHint="Oculta los productos cuyo precio está por consultar"
                 accessibilityState={{ checked: soloConPrecio }}
               >
                 <Ionicons
@@ -645,7 +862,7 @@ export default function ProductosScreen() {
                 </View>
               </TouchableOpacity>
 
-              <Text style={styles.filterSectionTitle}>Ordenar por</Text>
+              <Text style={styles.filterSectionTitle} accessibilityRole="header">Ordenar por</Text>
               <View style={styles.pickerRow}>
                 {([
                   ['relevancia', 'Más relevantes'],
@@ -658,6 +875,7 @@ export default function ProductosScreen() {
                     style={[styles.chip, ordenProductos === orden && styles.chipSelected]}
                     onPress={() => setOrdenProductos(orden)}
                     accessibilityRole="button"
+                    accessibilityLabel={`Ordenar por ${etiqueta}`}
                     accessibilityState={{ selected: ordenProductos === orden }}
                   >
                     <Text
@@ -678,6 +896,7 @@ export default function ProductosScreen() {
                 style={styles.clearFiltersButton}
                 onPress={limpiarBusquedaYFiltros}
                 accessibilityRole="button"
+                accessibilityLabel="Limpiar búsqueda y todos los filtros"
               >
                 <Text style={styles.clearFiltersText}>Limpiar todo</Text>
               </TouchableOpacity>
@@ -685,6 +904,7 @@ export default function ProductosScreen() {
                 style={styles.applyFiltersButton}
                 onPress={() => setFiltrosVisibles(false)}
                 accessibilityRole="button"
+                accessibilityLabel={`Ver ${productosFiltrados.length} productos encontrados`}
               >
                 <Text style={styles.applyFiltersText}>
                   Ver {productosFiltrados.length} resultados
@@ -698,7 +918,7 @@ export default function ProductosScreen() {
       {/* Cabecera */}
       <View style={styles.header}>
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Catálogo de Productos</Text>
+          <Text style={styles.headerTitle} accessibilityRole="header">Catálogo de Productos</Text>
           <Text style={styles.headerSubtitle}>
             {isAdmin
               ? 'Administrador: Control total del catálogo'
@@ -713,6 +933,8 @@ export default function ProductosScreen() {
             style={styles.addButton}
             onPress={abrirModalCrear}
             accessibilityRole="button"
+            accessibilityLabel="Añadir producto"
+            accessibilityHint="Abre el formulario para crear un producto"
           >
             <Ionicons name="add-circle" size={20} color="#fff" />
             <Text style={styles.addButtonText}>Añadir</Text>
@@ -726,6 +948,9 @@ export default function ProductosScreen() {
           <TouchableOpacity
             style={[styles.filterTab, !soloMisProductos && styles.filterTabActive]}
             onPress={() => setSoloMisProductos(false)}
+            accessibilityRole="tab"
+            accessibilityLabel={`Todos los productos, ${productos.length}`}
+            accessibilityState={{ selected: !soloMisProductos }}
           >
             <Ionicons
               name="globe-outline"
@@ -745,6 +970,9 @@ export default function ProductosScreen() {
           <TouchableOpacity
             style={[styles.filterTab, soloMisProductos && styles.filterTabActive]}
             onPress={() => setSoloMisProductos(true)}
+            accessibilityRole="tab"
+            accessibilityLabel={`Mis productos, ${productos.filter((p) => p.id_comercio === miComercioId).length}`}
+            accessibilityState={{ selected: soloMisProductos }}
           >
             <Ionicons
               name="storefront"
@@ -776,6 +1004,7 @@ export default function ProductosScreen() {
             autoCorrect={false}
             returnKeyType="search"
             accessibilityLabel="Buscar productos por nombre, marca, categoría o tienda"
+            accessibilityHint="Escribe para filtrar el catálogo"
           />
           {busqueda.length > 0 && (
             <TouchableOpacity
@@ -813,7 +1042,7 @@ export default function ProductosScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-      <View style={styles.resultsSummary}>
+      <View style={styles.resultsSummary} accessibilityLiveRegion="polite">
         <Text style={styles.resultsSummaryText}>
           {productosFiltrados.length === 1
             ? '1 producto encontrado'
@@ -916,14 +1145,14 @@ export default function ProductosScreen() {
 
       {/* Lista de productos */}
       {cargando ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#16a34a" />
+        <View style={styles.centerContainer} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="large" color="#16a34a" accessibilityLabel="Cargando catálogo de productos" />
           <Text style={styles.loadingText}>Cargando catálogo...</Text>
         </View>
       ) : productosFiltrados.length === 0 ? (
         <View style={styles.centerContainer}>
           <Ionicons name="basket-outline" size={56} color="#cbd5e1" />
-          <Text style={styles.emptyTitle}>No hay productos disponibles</Text>
+          <Text style={styles.emptyTitle} accessibilityRole="header">No hay productos disponibles</Text>
           <Text style={styles.emptySubtitle}>
             {busqueda
               ? 'Prueba con otros términos o quita algunos filtros.'
@@ -949,6 +1178,9 @@ export default function ProductosScreen() {
             const tengoPermiso = puedeGestionarProducto(item);
             const iconInfo = getProductDefaultIcon(item.id_categoria, item.nombre);
             const demoDiscount = getDemoDiscount(item.nombre, item.precio);
+            const demoRating = getDemoProductRating(item.id_producto);
+            const expanded = expandedProductId === item.id_producto;
+            const userRating = calificaciones[item.id_producto];
 
             return (
               <View
@@ -959,7 +1191,13 @@ export default function ProductosScreen() {
                 ]}
               >
                 {/* Imagen del producto o Icono temático */}
-                <View style={[styles.productImageWrapper, { backgroundColor: iconInfo.bg }]}>
+                <Pressable
+                  onPress={() => setExpandedProductId(expanded ? null : item.id_producto)}
+                  style={[styles.productImageWrapper, { backgroundColor: iconInfo.bg }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${expanded ? 'Ocultar' : 'Mostrar'} toda la información de ${item.nombre}`}
+                  accessibilityState={{ expanded }}
+                >
                   <ProductImage
                     productName={item.nombre}
                     brand={item.marca}
@@ -974,17 +1212,23 @@ export default function ProductosScreen() {
                     />
                     }
                   />
-                </View>
+                </Pressable>
 
                 <View style={styles.productInfo}>
-                  <View style={styles.nameRow}>
-                    <Text style={styles.productName}>{item.nombre}</Text>
+                  <Pressable
+                    onPress={() => setExpandedProductId(expanded ? null : item.id_producto)}
+                    style={styles.nameRow}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${expanded ? 'Ocultar' : 'Mostrar'} toda la información de ${item.nombre}`}
+                    accessibilityState={{ expanded }}
+                  >
+                    <Text style={styles.productName} accessibilityRole="header">{item.nombre}</Text>
                     {esMio && (
                       <View style={styles.badgePropio}>
                         <Text style={styles.badgePropioText}>Tu Comercio</Text>
                       </View>
                     )}
-                  </View>
+                  </Pressable>
 
                   {item.marca ? (
                     <Text style={styles.productBrand}>Marca: {item.marca}</Text>
@@ -1028,6 +1272,94 @@ export default function ProductosScreen() {
                       <Text style={styles.pricePending}>Por consultar</Text>
                     )}
                   </View>
+
+                  <View style={styles.ratingRow}>
+                    <View style={styles.ratingStars}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Pressable
+                          key={star}
+                          onPress={() => void calificarProducto(item.id_producto, star)}
+                          disabled={!user || calificandoProducto === item.id_producto}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Calificar ${item.nombre} con ${star} estrellas`}
+                          accessibilityHint={!user ? 'Inicia sesión para calificar este producto' : 'Guarda tu calificación para este producto'}
+                          accessibilityState={{
+                            disabled: !user || calificandoProducto === item.id_producto,
+                            selected: calificaciones[item.id_producto]?.miCalificacion === star,
+                            busy: calificandoProducto === item.id_producto,
+                          }}
+                          hitSlop={6}
+                          style={styles.ratingStarButton}
+                        >
+                          <Ionicons
+                            name={star <= (calificaciones[item.id_producto]?.miCalificacion ?? 0) ? 'star' : 'star-outline'}
+                            size={15}
+                            color="#eab308"
+                          />
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Text style={styles.ratingSummary}>
+                      {calificaciones[item.id_producto]
+                        ? `Real: ${calificaciones[item.id_producto].promedio.toFixed(1)} (${calificaciones[item.id_producto].cantidad})`
+                        : 'Sin calificaciones reales'}
+                    </Text>
+                  </View>
+                  <View style={styles.demoRatingRow} accessible accessibilityLabel={`Calificación de demostración: ${demoRating.toFixed(1)} de 5`}>
+                    <Ionicons name="star" size={12} color="#d97706" />
+                    <Text style={styles.demoRatingText}>
+                      Calificación de demostración: {demoRating.toFixed(1)}/5
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => setExpandedProductId(expanded ? null : item.id_producto)}
+                    style={styles.detailsToggle}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${expanded ? 'Ocultar' : 'Ver'} toda la información de ${item.nombre}`}
+                    accessibilityHint="Expande o contrae los detalles del producto"
+                    accessibilityState={{ expanded }}
+                  >
+                    <Text style={styles.detailsToggleText}>{expanded ? 'Ocultar detalles' : 'Ver todos los detalles'}</Text>
+                    <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#166534" />
+                  </Pressable>
+                  {expanded && (
+                    <View style={styles.expandedDetails}>
+                      <Text style={styles.expandedDetailsTitle} accessibilityRole="header">Información completa</Text>
+                      <ProductDetailRow label="Marca" value={item.marca?.trim() || 'Sin marca registrada'} />
+                      <ProductDetailRow label="Unidad de medida" value={item.unidad_medida} />
+                      <ProductDetailRow label="Categoría" value={cat?.descripcion || 'Sin categoría'} />
+                      <ProductDetailRow label="Comercio" value={com?.nombre || 'Sin comercio asignado'} />
+                      <ProductDetailRow
+                        label="Precio registrado"
+                        value={item.precio != null && Number(item.precio) > 0
+                          ? `$${Number(item.precio).toLocaleString('es-CO')} COP`
+                          : 'Por consultar'}
+                      />
+                      <ProductDetailRow
+                        label="Calificaciones reales"
+                        value={userRating
+                          ? `${userRating.promedio.toFixed(1)} de 5 (${userRating.cantidad} ${userRating.cantidad === 1 ? 'opinión' : 'opiniones'})`
+                          : 'Sin calificaciones reales'}
+                      />
+                      <ProductDetailRow
+                        label="Calificación de demostración"
+                        value={`${demoRating.toFixed(1)} de 5 (dato simulado, no es una opinión real)`}
+                      />
+                      <ProductDetailRow label="Descripción" value={item.descripcion?.trim() || 'Sin descripción disponible'} />
+                    </View>
+                  )}
+                  <Pressable
+                    onPress={() => void openAddToList(item)}
+                    disabled={loadingShoppingLists || addingProductToList}
+                    style={[styles.addToListButton, (loadingShoppingLists || addingProductToList) && styles.disabledButton]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Agregar ${item.nombre} a una lista`}
+                    accessibilityHint={user ? 'Elige una lista existente o crea una nueva' : 'Inicia sesión para guardar productos en tus listas'}
+                    accessibilityState={{ disabled: loadingShoppingLists || addingProductToList, busy: addingProductToList }}
+                  >
+                    <Ionicons name="cart-outline" size={17} color="#ffffff" />
+                    <Text style={styles.addToListButtonText}>Agregar a lista</Text>
+                  </Pressable>
                 </View>
 
                 {tengoPermiso && (
@@ -1036,6 +1368,9 @@ export default function ProductosScreen() {
                       style={styles.editButton}
                       onPress={() => abrirModalEditar(item)}
                       accessibilityRole="button"
+                      accessibilityLabel={`Editar ${item.nombre}`}
+                      accessibilityHint="Abre el formulario de edición del producto"
+                      hitSlop={6}
                     >
                       <Ionicons name="pencil-outline" size={18} color="#0284c7" />
                     </TouchableOpacity>
@@ -1043,6 +1378,9 @@ export default function ProductosScreen() {
                       style={styles.deleteButton}
                       onPress={() => handleEliminarProducto(item)}
                       accessibilityRole="button"
+                      accessibilityLabel={`Eliminar ${item.nombre}`}
+                      accessibilityHint="Solicita eliminar este producto"
+                      hitSlop={6}
                     >
                       <Ionicons name="trash-outline" size={18} color="#dc2626" />
                     </TouchableOpacity>
@@ -1062,12 +1400,17 @@ export default function ProductosScreen() {
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={styles.modalCard} accessibilityViewIsModal>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
+              <Text style={styles.modalTitle} accessibilityRole="header">
                 {productoEnEdicion ? 'Editar Producto' : 'Añadir Nuevo Producto'}
               </Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
+              <TouchableOpacity
+                onPress={() => setModalVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar formulario de producto"
+                hitSlop={8}
+              >
                 <Ionicons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
@@ -1080,6 +1423,9 @@ export default function ProductosScreen() {
                   style={styles.imagePreviewBox}
                   onPress={seleccionarImagen}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={imagenUrl ? 'Cambiar imagen del producto' : 'Seleccionar imagen del producto'}
+                  accessibilityHint="Abre la galería para elegir una foto"
                 >
                   {imagenUrl ? (
                     <Image
@@ -1101,6 +1447,8 @@ export default function ProductosScreen() {
                   <TouchableOpacity
                     style={styles.removeImageBtn}
                     onPress={() => setImagenUrl('')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Quitar imagen del producto"
                   >
                     <Ionicons name="trash-outline" size={16} color="#dc2626" />
                     <Text style={styles.removeImageText}>Quitar imagen</Text>
@@ -1114,6 +1462,8 @@ export default function ProductosScreen() {
                 placeholder="Ej. Arroz Blanco 1kg, Queso Costeño..."
                 value={nombre}
                 onChangeText={setNombre}
+                accessibilityLabel="Nombre del producto"
+                accessibilityHint="Campo obligatorio"
               />
 
               <Text style={styles.fieldLabel}>Marca (opcional)</Text>
@@ -1122,6 +1472,7 @@ export default function ProductosScreen() {
                 placeholder="Ej. Diana, Roa, Colanta, Alpina..."
                 value={marca}
                 onChangeText={setMarca}
+                accessibilityLabel="Marca del producto, opcional"
               />
 
               <Text style={styles.fieldLabel}>Precio en Pesos Colombianos ($ COP) *</Text>
@@ -1131,6 +1482,8 @@ export default function ProductosScreen() {
                 keyboardType="numeric"
                 value={precioInput}
                 onChangeText={setPrecioInput}
+                accessibilityLabel="Precio del producto en pesos colombianos"
+                accessibilityHint="Campo obligatorio. Escribe solo el valor numérico"
               />
 
               <Text style={styles.fieldLabel}>Unidad de Medida *</Text>
@@ -1138,6 +1491,10 @@ export default function ProductosScreen() {
                 style={styles.dropdownTrigger}
                 onPress={() => setMostrarDropdownUnidad(!mostrarDropdownUnidad)}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Unidad de medida: ${unidadMedida}`}
+                accessibilityHint="Abre las opciones de unidad"
+                accessibilityState={{ expanded: mostrarDropdownUnidad }}
               >
                 <View style={styles.dropdownLeft}>
                   <Ionicons name="scale-outline" size={18} color="#16a34a" />
@@ -1161,6 +1518,9 @@ export default function ProductosScreen() {
                           styles.dropdownItem,
                           isSelected && styles.dropdownItemSelected,
                         ]}
+                        accessibilityRole="radio"
+                        accessibilityLabel={unidad}
+                        accessibilityState={{ selected: isSelected }}
                         onPress={() => {
                           setUnidadMedida(unidad);
                           setMostrarDropdownUnidad(false);
@@ -1195,6 +1555,7 @@ export default function ProductosScreen() {
                     value={otraUnidad}
                     onChangeText={setOtraUnidad}
                     autoFocus
+                    accessibilityLabel="Unidad de medida personalizada"
                   />
                 </View>
               )}
@@ -1209,6 +1570,9 @@ export default function ProductosScreen() {
                       styles.chip,
                       categoriaSeleccionada === cat.id_categoria && styles.chipSelected,
                     ]}
+                    accessibilityRole="radio"
+                    accessibilityLabel={`Categoría ${cat.descripcion}`}
+                    accessibilityState={{ selected: categoriaSeleccionada === cat.id_categoria }}
                   >
                     <Text
                       style={[
@@ -1245,6 +1609,9 @@ export default function ProductosScreen() {
                         styles.chip,
                         comercioSeleccionado === com.id_comercio && styles.chipSelected,
                       ]}
+                      accessibilityRole="radio"
+                      accessibilityLabel={`Comercio ${com.nombre}`}
+                      accessibilityState={{ selected: comercioSeleccionado === com.id_comercio }}
                     >
                       <Text
                         style={[
@@ -1267,6 +1634,7 @@ export default function ProductosScreen() {
                 numberOfLines={3}
                 value={descripcion}
                 onChangeText={setDescripcion}
+                accessibilityLabel="Descripción del producto, opcional"
               />
             </ScrollView>
 
@@ -1274,6 +1642,8 @@ export default function ProductosScreen() {
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setModalVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cancelar edición del producto"
               >
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
@@ -1281,6 +1651,9 @@ export default function ProductosScreen() {
                 style={styles.saveButton}
                 onPress={handleGuardarProducto}
                 disabled={guardando}
+                accessibilityRole="button"
+                accessibilityLabel={guardando ? 'Guardando producto' : productoEnEdicion ? 'Actualizar producto' : 'Guardar producto'}
+                accessibilityState={{ disabled: guardando, busy: guardando }}
               >
                 {guardando ? (
                   <ActivityIndicator color="#fff" />
@@ -1294,6 +1667,15 @@ export default function ProductosScreen() {
           </View>
         </View>
       </Modal>
+    </View>
+  );
+}
+
+function ProductDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.productDetailRow}>
+      <Text style={styles.productDetailLabel}>{label}</Text>
+      <Text style={styles.productDetailValue}>{value}</Text>
     </View>
   );
 }
@@ -1662,6 +2044,47 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     color: '#94a3b8',
   },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 5,
+    marginTop: 5,
+  },
+  ratingStars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ratingStarButton: {
+    minWidth: 40,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 2,
+  },
+  ratingSummary: {
+    color: '#64748b',
+    fontSize: 11,
+  },
+  demoRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  demoRatingText: {
+    color: '#92400e',
+    fontSize: 10,
+  },
+  detailsToggle: { minHeight: 44, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3, paddingHorizontal: 5 },
+  detailsToggleText: { color: '#166534', fontSize: 11, fontWeight: '700' },
+  expandedDetails: { gap: 6, marginTop: 7, padding: 10, borderRadius: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0' },
+  expandedDetailsTitle: { color: '#14532d', fontSize: 12, fontWeight: '800', marginBottom: 2 },
+  productDetailRow: { gap: 2 },
+  productDetailLabel: { color: '#475569', fontSize: 10, fontWeight: '700' },
+  productDetailValue: { color: '#334155', fontSize: 12, lineHeight: 17 },
+  addToListButton: { minHeight: 44, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 5, paddingHorizontal: 12, borderRadius: 11, backgroundColor: '#168344' },
+  addToListButtonText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
   discountPriceGroup: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
   originalPrice: { color: '#94a3b8', fontSize: 11, textDecorationLine: 'line-through' },
   discountBadge: { backgroundColor: '#fef3c7', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 },
@@ -1672,6 +2095,8 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   editButton: {
+    minWidth: 44,
+    minHeight: 44,
     padding: 6,
     backgroundColor: '#f0f9ff',
     borderRadius: 8,
@@ -1679,6 +2104,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   deleteButton: {
+    minWidth: 44,
+    minHeight: 44,
     padding: 6,
     backgroundColor: '#fef2f2',
     borderRadius: 8,
@@ -1698,6 +2125,24 @@ const styles = StyleSheet.create({
     padding: 20,
     boxShadow: '0px 10px 25px rgba(0,0,0,0.15)',
   },
+  addToListModal: {
+    width: '100%',
+    maxWidth: 480,
+    maxHeight: '90%',
+    alignSelf: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 18,
+    boxShadow: '0px 10px 25px rgba(0,0,0,0.15)',
+  },
+  addToListHeaderCopy: { flex: 1, gap: 5 },
+  addToListProductName: { color: '#475569', fontSize: 13, fontWeight: '600' },
+  addToListLoading: { minHeight: 72, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  addToListList: { maxHeight: 230, flexGrow: 0 },
+  addToListListContent: { gap: 8, paddingVertical: 6 },
+  addToListChoice: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: '#dcecdf', borderRadius: 12, backgroundColor: '#f7fdf8' },
+  addToListChoiceName: { flex: 1, color: '#14532d', fontSize: 13, fontWeight: '700' },
+  createShoppingList: { gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2002,6 +2447,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   saveButton: {
+    minHeight: 44,
+    justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 10,
@@ -2009,6 +2456,7 @@ const styles = StyleSheet.create({
     minWidth: 90,
     alignItems: 'center',
   },
+  disabledButton: { opacity: 0.55 },
   saveButtonText: {
     color: '#ffffff',
     fontWeight: 'bold',

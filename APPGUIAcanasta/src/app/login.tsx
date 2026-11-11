@@ -12,9 +12,17 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
+import * as Linking from 'expo-linking';
+import {
+  crearUsuario,
+  eliminarContrasenaLocal,
+  obtenerUsuario,
+  obtenerUsuarioPorCorreo,
+} from '../repositories/usuarioRepository';
 import { Toast, ToastType } from '../components/toast';
 import { useAuth } from '../contexts/auth-context';
+import { AppLogo } from '@/components/app-logo';
+import { supabase } from '../database/supabaseClient';
 
 const DEMO_USERS = [
   {
@@ -66,18 +74,91 @@ export default function LoginScreen() {
 
     try {
       setCargando(true);
-      const usuario = await obtenerUsuarioPorCorreo(correo.trim());
+      const email = correo.trim().toLowerCase();
+      let usuario = await obtenerUsuarioPorCorreo(email);
+      if (usuario && usuario.usu_estado !== 1) {
+        showToast('Esta cuenta está desactivada. Contacta al administrador.', 'error');
+        return;
+      }
+
+      const demoUser = DEMO_USERS.find(
+        (demo) => demo.correo === email && demo.contrasena === contrasena
+      );
+      if (demoUser && !__DEV__) {
+        showToast('Las cuentas de demostración solo están disponibles durante el desarrollo.', 'error');
+        return;
+      }
+      if (__DEV__ && demoUser && usuario) {
+        signIn(usuario);
+        showToast(`¡Bienvenido, ${usuario.nombre}!`, 'success');
+        setTimeout(() => router.replace('/(tabs)/cuenta'), 1200);
+        return;
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password: contrasena,
+      });
+      let authUser = authData.user;
+      let loginError = authError;
+
+      if (loginError && usuario?.contrasena && usuario.contrasena === contrasena) {
+        const migration = await supabase.auth.signUp({
+          email,
+          password: contrasena,
+          options: {
+            emailRedirectTo: Linking.createURL('login'),
+            data: {
+              nombre: usuario.nombre,
+              apellido: usuario.apellido,
+              telefono: usuario.telefono ?? null,
+              rol: usuario.rol === 'comercio' ? 'comercio' : 'usuario',
+            },
+          },
+        });
+
+        if (migration.error) {
+          showToast('No se pudo migrar la cuenta. Revisa la configuración de correo de Supabase.', 'error');
+          return;
+        }
+        if (!migration.data.user || migration.data.user.identities?.length === 0) {
+          showToast('Correo o contraseña incorrectos.', 'error');
+          return;
+        }
+
+        await eliminarContrasenaLocal(usuario.id_usuario);
+        if (!migration.data.session) {
+          showToast('Cuenta migrada. Confirma tu correo y luego inicia sesión.', 'success');
+          return;
+        }
+        authUser = migration.data.user;
+        loginError = null;
+      }
+
+      if (loginError || !authUser) {
+        showToast('Correo o contraseña incorrectos.', 'error');
+        return;
+      }
 
       if (!usuario) {
-        showToast('El correo ingresado no se encuentra registrado.', 'error');
+        const metadata = authUser.user_metadata ?? {};
+        const idUsuario = await crearUsuario(
+          String(metadata.nombre || email.split('@')[0]),
+          String(metadata.apellido || ''),
+          email,
+          String(metadata.telefono || '') || undefined,
+          metadata.rol === 'comercio' ? 'comercio' : 'usuario'
+        );
+        usuario = await obtenerUsuario(idUsuario);
+      }
+
+      if (!usuario || usuario.usu_estado !== 1) {
+        await supabase.auth.signOut();
+        showToast('La cuenta no tiene un perfil activo en esta aplicación.', 'error');
         return;
       }
 
-      if (usuario.contrasena !== contrasena) {
-        showToast('Contraseña incorrecta.', 'error');
-        return;
-      }
-
+      await eliminarContrasenaLocal(usuario.id_usuario);
       signIn(usuario);
       showToast(`¡Bienvenido, ${usuario.nombre}!`, 'success');
       setTimeout(() => router.replace('/(tabs)/cuenta'), 1200);
@@ -110,11 +191,9 @@ export default function LoginScreen() {
         <View style={styles.backgroundCircle} />
 
         <View style={styles.card}>
-          <View style={styles.headerIconContainer}>
-            <Ionicons name="basket" size={42} color="#16a34a" />
-          </View>
+          <AppLogo size={64} style={styles.headerLogo} />
 
-          <Text style={styles.title}>Iniciar Sesión</Text>
+          <Text style={styles.title} accessibilityRole="header">Iniciar Sesión</Text>
           <Text style={styles.subtitle}>Mi Canasta Familiar</Text>
 
           {/* Usuarios de demo adaptativo */}
@@ -140,6 +219,10 @@ export default function LoginScreen() {
                     ]}
                     onPress={() => fillDemo(u)}
                     activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${u.titulo}: ${u.subtitulo}`}
+                    accessibilityHint="Completa el formulario con una cuenta de demostración"
+                    accessibilityState={{ selected: isSelected }}
                   >
                     <Ionicons
                       name={u.icon}
@@ -189,6 +272,10 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 value={correo}
                 onChangeText={setCorreo}
+                accessibilityLabel="Correo electrónico"
+                accessibilityHint="Ingresa el correo asociado a tu cuenta"
+                returnKeyType="next"
+                textContentType="emailAddress"
               />
             </View>
           </View>
@@ -204,8 +291,19 @@ export default function LoginScreen() {
                 secureTextEntry={!mostrarContrasena}
                 value={contrasena}
                 onChangeText={setContrasena}
+                accessibilityLabel="Contraseña"
+                accessibilityHint="Ingresa tu contraseña"
+                returnKeyType="done"
+                textContentType="password"
               />
-              <TouchableOpacity onPress={() => setMostrarContrasena(!mostrarContrasena)} style={styles.eyeIcon}>
+              <TouchableOpacity
+                onPress={() => setMostrarContrasena(!mostrarContrasena)}
+                style={styles.eyeIcon}
+                accessibilityRole="button"
+                accessibilityLabel={mostrarContrasena ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                accessibilityState={{ selected: mostrarContrasena }}
+                hitSlop={8}
+              >
                 <Ionicons
                   name={mostrarContrasena ? 'eye-off-outline' : 'eye-outline'}
                   size={20}
@@ -218,6 +316,7 @@ export default function LoginScreen() {
           <TouchableOpacity
             style={styles.linkRight}
             onPress={() => router.push('/olvidar-contrasena')}
+            accessibilityRole="link"
           >
             <Text style={styles.linkText}>¿Olvidaste tu contraseña?</Text>
           </TouchableOpacity>
@@ -226,6 +325,9 @@ export default function LoginScreen() {
             style={styles.buttonPrimary}
             onPress={handleLogin}
             disabled={cargando}
+            accessibilityRole="button"
+            accessibilityLabel={cargando ? 'Iniciando sesión' : 'Ingresar'}
+            accessibilityState={{ disabled: cargando, busy: cargando }}
           >
             {cargando ? (
               <ActivityIndicator color="#fff" />
@@ -236,7 +338,7 @@ export default function LoginScreen() {
 
           <View style={styles.footerContainer}>
             <Text style={styles.footerText}>¿No tienes una cuenta? </Text>
-            <TouchableOpacity onPress={() => router.push('/registro')}>
+            <TouchableOpacity onPress={() => router.push('/registro')} accessibilityRole="link">
               <Text style={[styles.linkText, styles.bold]}>Regístrate</Text>
             </TouchableOpacity>
           </View>
@@ -275,14 +377,8 @@ const styles = StyleSheet.create({
     borderColor: '#e7ece7',
     boxShadow: '0px 5px 18px rgba(31, 56, 38, 0.06)',
   },
-  headerIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#dcfce7',
+  headerLogo: {
     alignSelf: 'center',
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 12,
   },
   title: {

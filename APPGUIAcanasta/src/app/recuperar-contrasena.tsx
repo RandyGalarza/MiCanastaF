@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,23 +10,82 @@ import {
   ScrollView,
   ActivityIndicator
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
-import { actualizarContrasenaPorCorreo } from '../repositories/usuarioRepository';
+import { supabase } from '../database/supabaseClient';
 import { mostrarAlerta } from '../utils/alerts';
 
 export default function RecuperarContrasenaScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ correo?: string }>();
-  const [correo, setCorreo] = useState(params.correo || '');
   const [nuevaContrasena, setNuevaContrasena] = useState('');
   const [confirmarContrasena, setConfirmarContrasena] = useState('');
   const [mostrarNueva, setMostrarNueva] = useState(false);
   const [mostrarConfirmar, setMostrarConfirmar] = useState(false);
   const [cargando, setCargando] = useState(false);
+  const [recoveryReady, setRecoveryReady] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+
+    const processRecoveryUrl = async (url: string | null) => {
+      if (!url) return;
+
+      try {
+        const parsedUrl = new URL(url);
+        const code = parsedUrl.searchParams.get('code');
+        if (code) {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+          if (active && data.session) setRecoveryReady(true);
+          return;
+        }
+
+        const fragment = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
+        const accessToken = fragment.get('access_token') || parsedUrl.searchParams.get('access_token');
+        const refreshToken = fragment.get('refresh_token') || parsedUrl.searchParams.get('refresh_token');
+        if (!accessToken || !refreshToken) return;
+
+        const { data, error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (error) throw error;
+        if (active && data.session) setRecoveryReady(true);
+      } catch (error) {
+        console.error('No se pudo validar el enlace de recuperación:', error);
+        if (active) setRecoveryError('El enlace no es válido o ya venció. Solicita uno nuevo.');
+      }
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' && session && active) {
+        setRecoveryReady(true);
+      }
+    });
+    const urlSubscription = Linking.addEventListener('url', ({ url }) => {
+      void processRecoveryUrl(url);
+    });
+    void Linking.getInitialURL().then(processRecoveryUrl).catch((error) => {
+      console.error('No se pudo leer el enlace de recuperación:', error);
+      if (active) setRecoveryError('No se pudo validar el enlace. Solicita uno nuevo.');
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+      urlSubscription.remove();
+    };
+  }, []);
 
   const handleRestablecer = async () => {
-    if (!correo.trim() || !nuevaContrasena.trim() || !confirmarContrasena.trim()) {
+    if (!recoveryReady) {
+      mostrarAlerta('Enlace requerido', 'Abre primero el enlace de recuperación enviado a tu correo.');
+      return;
+    }
+
+    if (!nuevaContrasena.trim() || !confirmarContrasena.trim()) {
       mostrarAlerta('Error', 'Por favor completa todos los campos.');
       return;
     }
@@ -43,25 +102,19 @@ export default function RecuperarContrasenaScreen() {
 
     try {
       setCargando(true);
-      const exito = await actualizarContrasenaPorCorreo(
-        correo.trim(),
-        nuevaContrasena
-      );
-
-      if (exito) {
-        mostrarAlerta(
-          'Éxito',
-          'Tu contraseña ha sido actualizada correctamente.',
-          [
-            {
-              text: 'Iniciar Sesión',
-              onPress: () => router.replace('/login'),
-            },
-          ]
-        );
-      } else {
-        mostrarAlerta('Error', 'No se pudo encontrar el usuario para actualizar la contraseña.');
+      const { error } = await supabase.auth.updateUser({ password: nuevaContrasena });
+      if (error) throw error;
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) {
+        console.error('La contraseña se actualizó, pero no se pudo cerrar la sesión:', signOutError);
+        mostrarAlerta('Contraseña actualizada', 'La clave se cambió, pero no se pudo cerrar la sesión automáticamente.', [
+          { text: 'Continuar', onPress: () => router.replace('/login') },
+        ]);
+        return;
       }
+      mostrarAlerta('Éxito', 'Tu contraseña se actualizó. Ya puedes iniciar sesión.', [
+        { text: 'Iniciar sesión', onPress: () => router.replace('/login') },
+      ]);
     } catch (error) {
       console.error(error);
       mostrarAlerta('Error', 'Ocurrió un problema al actualizar la contraseña.');
@@ -83,29 +136,14 @@ export default function RecuperarContrasenaScreen() {
             <Ionicons name="key-outline" size={32} color="#16a34a" />
           </View>
 
-          <Text style={styles.title}>Recuperar Contraseña</Text>
+          <Text style={styles.title} accessibilityRole="header">Recuperar Contraseña</Text>
           <Text style={styles.subtitle}>
-            Ingresa tu nueva contraseña para acceder de nuevo a tu cuenta.
+            {recoveryReady
+              ? 'Elige una contraseña nueva para volver a tu cuenta.'
+              : recoveryError || 'Abre el enlace de recuperación que enviamos a tu correo para continuar.'}
           </Text>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Correo Electrónico</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="mail-outline" size={18} color="#64748b" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="ejemplo@correo.com"
-                placeholderTextColor="#94a3b8"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={correo}
-                onChangeText={setCorreo}
-                editable={!params.correo}
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
+          {recoveryReady && <View style={styles.inputContainer}>
             <Text style={styles.label}>Nueva Contraseña</Text>
             <View style={styles.inputWrapper}>
               <Ionicons name="lock-closed-outline" size={18} color="#64748b" style={styles.inputIcon} />
@@ -116,10 +154,18 @@ export default function RecuperarContrasenaScreen() {
                 secureTextEntry={!mostrarNueva}
                 value={nuevaContrasena}
                 onChangeText={setNuevaContrasena}
+                accessibilityLabel="Nueva contraseña"
+                accessibilityHint="Debe tener al menos 6 caracteres"
+                textContentType="newPassword"
+                returnKeyType="next"
               />
               <TouchableOpacity
                 onPress={() => setMostrarNueva(!mostrarNueva)}
                 style={styles.eyeIcon}
+                accessibilityRole="button"
+                accessibilityLabel={mostrarNueva ? 'Ocultar nueva contraseña' : 'Mostrar nueva contraseña'}
+                accessibilityState={{ selected: mostrarNueva }}
+                hitSlop={8}
               >
                 <Ionicons
                   name={mostrarNueva ? 'eye-off-outline' : 'eye-outline'}
@@ -128,9 +174,9 @@ export default function RecuperarContrasenaScreen() {
                 />
               </TouchableOpacity>
             </View>
-          </View>
+          </View>}
 
-          <View style={styles.inputContainer}>
+          {recoveryReady && <View style={styles.inputContainer}>
             <Text style={styles.label}>Confirmar Nueva Contraseña</Text>
             <View style={styles.inputWrapper}>
               <Ionicons name="lock-closed-outline" size={18} color="#64748b" style={styles.inputIcon} />
@@ -141,10 +187,17 @@ export default function RecuperarContrasenaScreen() {
                 secureTextEntry={!mostrarConfirmar}
                 value={confirmarContrasena}
                 onChangeText={setConfirmarContrasena}
+                accessibilityLabel="Confirmar nueva contraseña"
+                textContentType="newPassword"
+                returnKeyType="done"
               />
               <TouchableOpacity
                 onPress={() => setMostrarConfirmar(!mostrarConfirmar)}
                 style={styles.eyeIcon}
+                accessibilityRole="button"
+                accessibilityLabel={mostrarConfirmar ? 'Ocultar confirmación de contraseña' : 'Mostrar confirmación de contraseña'}
+                accessibilityState={{ selected: mostrarConfirmar }}
+                hitSlop={8}
               >
                 <Ionicons
                   name={mostrarConfirmar ? 'eye-off-outline' : 'eye-outline'}
@@ -153,22 +206,35 @@ export default function RecuperarContrasenaScreen() {
                 />
               </TouchableOpacity>
             </View>
-          </View>
+          </View>}
 
-          <TouchableOpacity
-            style={styles.buttonPrimary}
-            onPress={handleRestablecer}
-            disabled={cargando}
-          >
-            {cargando ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonPrimaryText}>Restablecer Contraseña</Text>
-            )}
-          </TouchableOpacity>
+          {recoveryReady ? (
+            <TouchableOpacity
+              style={styles.buttonPrimary}
+              onPress={handleRestablecer}
+              disabled={cargando}
+              accessibilityRole="button"
+              accessibilityLabel={cargando ? 'Restableciendo contraseña' : 'Restablecer contraseña'}
+              accessibilityState={{ disabled: cargando, busy: cargando }}
+            >
+              {cargando ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonPrimaryText}>Restablecer Contraseña</Text>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.buttonPrimary}
+              onPress={() => router.replace('/olvidar-contrasena')}
+              accessibilityRole="button"
+            >
+              <Text style={styles.buttonPrimaryText}>Solicitar otro enlace</Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.footerContainer}>
-            <TouchableOpacity onPress={() => router.replace('/login')}>
+            <TouchableOpacity onPress={() => router.replace('/login')} accessibilityRole="link">
               <Text style={styles.linkText}>Cancelar e Ir al Login</Text>
             </TouchableOpacity>
           </View>

@@ -1,6 +1,11 @@
 import { getDatabase } from '../database/database';
 import { Producto } from '../types/database';
 
+export interface ProductoParaRecomendacion extends Producto {
+  precio: number;
+  categoria: string;
+}
+
 export async function crearProducto(
   id_categoria: number,
   id_comercio: number,
@@ -52,6 +57,39 @@ export async function obtenerProductos(): Promise<Producto[]> {
     ORDER BY p.nombre ASC
     `
   );
+}
+
+export async function obtenerCatalogoParaRecomendacion(): Promise<ProductoParaRecomendacion[]> {
+  const db = await getDatabase();
+  const [productos, precios, categorias] = await Promise.all([
+    db.getAllAsync<Producto>('SELECT * FROM productos WHERE pro_estado = 1'),
+    db.getAllAsync<{ id_producto: number; precio: number; disponible: number }>(
+      'SELECT id_producto, precio, disponible FROM precios'
+    ),
+    db.getAllAsync<{ id_categoria: number; descripcion: string }>('SELECT * FROM categorias'),
+  ]);
+  const precioMinimo = new Map<number, number>();
+  const categoriaPorId = new Map(
+    categorias.map((categoria) => [Number(categoria.id_categoria), categoria.descripcion])
+  );
+
+  for (const precio of precios) {
+    const idProducto = Number(precio.id_producto);
+    const valor = Number(precio.precio);
+    if (Number(precio.disponible) !== 1 || !Number.isFinite(valor) || valor <= 0) continue;
+    const actual = precioMinimo.get(idProducto);
+    if (actual == null || valor < actual) precioMinimo.set(idProducto, valor);
+  }
+
+  return productos.flatMap((producto) => {
+    const precio = precioMinimo.get(Number(producto.id_producto));
+    if (precio == null) return [];
+    return [{
+      ...producto,
+      precio,
+      categoria: categoriaPorId.get(Number(producto.id_categoria)) ?? 'Sin categoría',
+    }];
+  });
 }
 
 export async function obtenerProductosPorComercio(

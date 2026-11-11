@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/contexts/auth-context';
+import { mostrarAlerta } from '@/utils/alerts';
 
 function formatRegistrationDate(value: string): string {
   if (!value) return 'No disponible';
@@ -32,7 +33,7 @@ export default function CuentaScreen() {
             <Ionicons name="person-outline" size={30} color="#15803d" />
           </View>
           <Text style={styles.guestEyebrow}>MI CANASTA FAMILIAR</Text>
-          <Text style={styles.guestTitle}>Tu espacio personal</Text>
+          <Text style={styles.guestTitle} accessibilityRole="header">Tu espacio personal</Text>
           <Text style={styles.guestText}>
             Inicia sesión para consultar tu perfil, organizar tu presupuesto y tener tus compras a mano.
           </Text>
@@ -40,6 +41,8 @@ export default function CuentaScreen() {
             onPress={() => router.push('/login')}
             style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
             accessibilityRole="button"
+            accessibilityLabel="Iniciar sesión"
+            accessibilityHint="Abre el formulario de acceso"
           >
             <Text style={styles.primaryButtonText}>Iniciar sesión</Text>
             <Ionicons name="arrow-forward" size={17} color="#ffffff" />
@@ -48,6 +51,8 @@ export default function CuentaScreen() {
             onPress={() => router.push('/registro')}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
             accessibilityRole="button"
+            accessibilityLabel="Crear cuenta nueva"
+            accessibilityHint="Abre el formulario de registro"
           >
             <Text style={styles.secondaryButtonText}>Crear una cuenta nueva</Text>
           </Pressable>
@@ -67,9 +72,14 @@ export default function CuentaScreen() {
   const roleIcon = isAdmin ? 'shield-checkmark-outline' : isComercio ? 'storefront-outline' : 'person-outline';
   const initials = `${user.nombre.trim().charAt(0)}${user.apellido.trim().charAt(0)}`.toUpperCase();
 
-  const handleSignOut = () => {
-    signOut();
-    router.replace('/(tabs)/cuenta');
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      router.replace('/(tabs)/cuenta');
+    } catch (error) {
+      console.error('No se pudo cerrar la sesión:', error);
+      mostrarAlerta('Error', 'No se pudo cerrar la sesión. Inténtalo nuevamente.');
+    }
   };
 
   return (
@@ -81,7 +91,7 @@ export default function CuentaScreen() {
       <View style={styles.pageHeading}>
         <View>
           <Text style={styles.pageEyebrow}>TU PERFIL</Text>
-          <Text style={styles.pageTitle}>Mi cuenta</Text>
+          <Text style={styles.pageTitle} accessibilityRole="header">Mi cuenta</Text>
         </View>
         <View style={styles.headingIcon}>
           <Ionicons name="person-circle-outline" size={23} color="#15803d" />
@@ -92,7 +102,7 @@ export default function CuentaScreen() {
         <View style={styles.profileDecoration} />
         <View style={styles.profileTopRow}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initials || 'MC'}</Text>
+            <Text style={styles.avatarText} accessibilityLabel={`Iniciales de ${user.nombre} ${user.apellido}`}>{initials || 'MC'}</Text>
           </View>
           <View style={[styles.roleBadge, { backgroundColor: roleBackground }]}>
             <Ionicons name={roleIcon} size={14} color={roleColor} />
@@ -125,6 +135,8 @@ export default function CuentaScreen() {
             onPress={() => router.push('/(tabs)/lista-compra')}
             style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}
             accessibilityRole="button"
+            accessibilityLabel="Mis listas de compra"
+            accessibilityHint="Organiza los productos que necesitas"
           >
             <View style={[styles.actionIcon, styles.actionGreen]}>
               <Ionicons name="cart-outline" size={20} color="#15803d" />
@@ -140,6 +152,8 @@ export default function CuentaScreen() {
             onPress={() => router.push('/historial-compras')}
             style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}
             accessibilityRole="button"
+            accessibilityLabel="Historial de compras"
+            accessibilityHint="Consulta tus compras y facturas guardadas"
           >
             <View style={[styles.actionIcon, styles.actionBlue]}>
               <Ionicons name="receipt-outline" size={20} color="#0369a1" />
@@ -155,6 +169,8 @@ export default function CuentaScreen() {
             onPress={() => router.push('/(tabs)/presupuesto')}
             style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}
             accessibilityRole="button"
+            accessibilityLabel={isComercio ? 'Mis ventas' : 'Mi presupuesto'}
+            accessibilityHint={isComercio ? 'Consulta el resumen de ventas' : 'Revisa tu planeación de gastos'}
           >
             <View style={[styles.actionIcon, styles.actionPurple]}>
               <Ionicons name={isComercio ? 'stats-chart-outline' : 'wallet-outline'} size={20} color="#7c3aed" />
@@ -173,6 +189,8 @@ export default function CuentaScreen() {
               onPress={() => router.push('/(tabs)/admin' as any)}
               style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}
               accessibilityRole="button"
+              accessibilityLabel="Panel de administración"
+              accessibilityHint="Abre las herramientas administrativas"
             >
               <View style={[styles.actionIcon, styles.actionAmber]}>
                 <Ionicons name="settings-outline" size={20} color="#b45309" />
@@ -204,6 +222,8 @@ export default function CuentaScreen() {
 
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel="Cerrar sesión"
+        accessibilityHint="Finaliza la sesión actual"
         onPress={handleSignOut}
         style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}
       >

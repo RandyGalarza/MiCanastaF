@@ -70,6 +70,8 @@ function TabButton({ label, icon, isFocused, ...props }: TabButtonProps) {
     <Pressable
       {...props}
       accessibilityRole="tab"
+      accessibilityLabel={label}
+      accessibilityHint={`Abre la sección ${label}`}
       accessibilityState={{ selected: isFocused }}
       style={({ pressed }) => [
         styles.tabButton,

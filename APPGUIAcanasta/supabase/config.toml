@@ -1,0 +1,4 @@
+project_id = "app-guia-canasta"
+
+[functions.gemini-chat]
+verify_jwt = true

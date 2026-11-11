@@ -11,7 +11,7 @@ export interface DatabaseConnection {
 }
 
 const WEB_DB_KEY = 'canasta_familiar_db';
-const WEB_DB_VERSION = '6'; // Forzar reseteo/migración limpia con los 70 productos de Riohacha y precios
+const WEB_DB_VERSION = '7';
 
 // Adaptador web con persistencia en localStorage versionada
 class WebDatabaseAdapter implements DatabaseConnection {
@@ -24,31 +24,27 @@ class WebDatabaseAdapter implements DatabaseConnection {
 
   private loadFromStorage() {
     try {
-      const version = localStorage.getItem(`${WEB_DB_KEY}_version`);
       const stored = localStorage.getItem(WEB_DB_KEY);
 
-      if (stored && version === WEB_DB_VERSION) {
+      if (stored) {
         const parsed = JSON.parse(stored);
         this.tables = parsed.tables || {};
         this.autoIncrements = parsed.autoIncrements || {};
-        this.migrateVersionData();
-        this.saveToStorage();
-      } else {
-        // Si no existe o la versión es anterior a la 6, limpiar para poblar limpiamente
-        this.tables = {};
-        this.autoIncrements = {};
-        localStorage.setItem(`${WEB_DB_KEY}_version`, WEB_DB_VERSION);
       }
+
+      this.migrateVersionData();
+      this.saveToStorage();
+      localStorage.setItem(`${WEB_DB_KEY}_version`, WEB_DB_VERSION);
     } catch (error) {
       console.error('No se pudieron cargar o migrar los datos de la base web:', error);
-      this.tables = {};
-      this.autoIncrements = {};
+      throw error;
     }
   }
 
   private migrateVersionData() {
     const today = new Date().toISOString().split('T')[0];
     this.tables.usuarios?.forEach((usuario) => {
+      usuario.contrasena ??= '';
       usuario.fecha_creacion ??= usuario.fecha_registro ?? today;
       usuario.usu_estado ??= usuario.estado ?? 1;
       usuario.rol ??= usuario.correo === 'admin@canasta.com' ? 'admin' : (usuario.id_comercio ? 'comercio' : 'usuario');
@@ -157,6 +153,7 @@ class WebDatabaseAdapter implements DatabaseConnection {
         presupuestos: 'id_presupuesto',
         categorias: 'id_categoria',
         productos: 'id_producto',
+        calificaciones_productos: 'id_calificacion',
         comercios: 'id_comercio',
         precios: 'id_precio',
         listas_compra: 'id_lista',
@@ -164,6 +161,7 @@ class WebDatabaseAdapter implements DatabaseConnection {
         compras: 'id_compra',
         billeteras: 'id_billetera',
         movimientos_saldo: 'id_movimiento',
+        movimientos_hogar: 'id_movimiento_hogar',
         pagos_pendientes: 'id_pago',
         detalles_presupuesto: 'id_detalle',
         facturas: 'id_factura',
@@ -232,7 +230,6 @@ class WebDatabaseAdapter implements DatabaseConnection {
       let changes = 0;
 
       const setAssignments = setClause.split(',').map((assignment) => assignment.trim());
-      const setFields = setAssignments.map((assignment) => assignment.split('=')[0].trim());
       const setParameterCount = (setClause.match(/\?/g) || []).length;
 
       records.forEach((record) => {
@@ -292,6 +289,11 @@ class WebDatabaseAdapter implements DatabaseConnection {
       if (whereClause.includes('id_categoria =')) {
         const idVal = paramList[0];
         this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_categoria !== idVal);
+      } else if (whereClause.includes('id_movimiento_hogar =')) {
+        const [movementId, userId] = paramList.map(Number);
+        this.tables[tableName] = (this.tables[tableName] || []).filter(
+          (r) => Number(r.id_movimiento_hogar) !== movementId || Number(r.id_usuario) !== userId
+        );
       } else if (whereClause.includes('id_producto =')) {
         const idVal = paramList[0];
         this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_producto !== idVal);
@@ -405,6 +407,12 @@ class WebDatabaseAdapter implements DatabaseConnection {
         records = records.filter((r) => r.descripcion === paramList[0]);
       } else if (trimmed.includes('WHERE nombre = ?')) {
         records = records.filter((r) => r.nombre === paramList[0]);
+      } else if (trimmed.toLowerCase().includes('where lower(correo) = lower(?)')) {
+        const correoParam = String(paramList[0]).toLowerCase();
+        records = records.filter(
+          (r) => String(r.correo).toLowerCase() === correoParam &&
+            (trimmed.includes('usu_estado = 1') ? r.usu_estado === 1 : true)
+        );
       } else if (trimmed.includes('WHERE correo =')) {
         const correoParam = paramList[0];
         records = records.filter(

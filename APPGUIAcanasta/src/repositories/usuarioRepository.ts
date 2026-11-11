@@ -5,7 +5,6 @@ export async function crearUsuario(
   nombre: string,
   apellido: string,
   correo: string,
-  contrasena: string,
   telefono?: string,
   rol: RolUsuario = 'usuario',
   id_comercio?: number | null
@@ -30,7 +29,7 @@ export async function crearUsuario(
       nombre,
       apellido,
       correo,
-      contrasena,
+      '',
       telefono ?? null,
       rol,
       id_comercio ?? null
@@ -79,8 +78,7 @@ export async function obtenerUsuarioPorCorreo(
     `
     SELECT *
     FROM usuarios
-    WHERE correo = ?
-      AND usu_estado = 1
+    WHERE LOWER(correo) = LOWER(?)
     `,
     [correo]
   );
@@ -129,20 +127,15 @@ export async function eliminarUsuario(
   );
 }
 
-export async function actualizarContrasenaPorCorreo(
-  correo: string,
-  nuevaContrasena: string
-): Promise<boolean> {
+export async function eliminarContrasenaLocal(id_usuario: number): Promise<void> {
   const db = await getDatabase();
 
-  const result = await db.runAsync(
+  await db.runAsync(
     `
     UPDATE usuarios
-    SET contrasena = ?
-    WHERE correo = ? AND usu_estado = 1
+    SET contrasena = ''
+    WHERE id_usuario = ?
     `,
-    [nuevaContrasena, correo]
+    [id_usuario]
   );
-
-  return result.changes > 0;
 }

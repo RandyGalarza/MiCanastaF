@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { obtenerUsuarioPorCorreo } from '../repositories/usuarioRepository';
+import * as Linking from 'expo-linking';
+import { supabase } from '../database/supabaseClient';
 import { mostrarAlerta } from '../utils/alerts';
 
 export default function OlvidarContrasenaScreen() {
@@ -28,24 +29,18 @@ export default function OlvidarContrasenaScreen() {
 
     try {
       setCargando(true);
-      const usuario = await obtenerUsuarioPorCorreo(correo.trim());
-
-      if (!usuario) {
-        mostrarAlerta('Error', 'No existe una cuenta asociada a este correo.');
-        return;
-      }
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        correo.trim().toLowerCase(),
+        { redirectTo: Linking.createURL('recuperar-contrasena') }
+      );
+      if (error) throw error;
 
       mostrarAlerta(
-        'Verificación',
-        'Se ha verificado tu cuenta. Procede a restablecer tu contraseña.',
+        'Revisa tu correo',
+        'Si existe una cuenta con ese correo, recibirás un enlace para restablecer la contraseña.',
         [
           {
-            text: 'Continuar',
-            onPress: () =>
-              router.push({
-                pathname: '/recuperar-contrasena',
-                params: { correo: correo.trim() },
-              }),
+            text: 'Entendido',
           },
         ]
       );
@@ -70,7 +65,7 @@ export default function OlvidarContrasenaScreen() {
             <Ionicons name="help-circle-outline" size={32} color="#16a34a" />
           </View>
 
-          <Text style={styles.title}>Olvidé mi Contraseña</Text>
+          <Text style={styles.title} accessibilityRole="header">Olvidé mi Contraseña</Text>
           <Text style={styles.subtitle}>
             Ingresa tu correo registrado para iniciar el proceso de recuperación.
           </Text>
@@ -87,6 +82,10 @@ export default function OlvidarContrasenaScreen() {
                 autoCapitalize="none"
                 value={correo}
                 onChangeText={setCorreo}
+                accessibilityLabel="Correo electrónico"
+                accessibilityHint="Ingresa el correo asociado a tu cuenta"
+                textContentType="emailAddress"
+                returnKeyType="done"
               />
             </View>
           </View>
@@ -95,6 +94,9 @@ export default function OlvidarContrasenaScreen() {
             style={styles.buttonPrimary}
             onPress={handleSolicitarCodigo}
             disabled={cargando}
+            accessibilityRole="button"
+            accessibilityLabel={cargando ? 'Enviando instrucciones' : 'Continuar'}
+            accessibilityState={{ disabled: cargando, busy: cargando }}
           >
             {cargando ? (
               <ActivityIndicator color="#fff" />
@@ -104,7 +106,7 @@ export default function OlvidarContrasenaScreen() {
           </TouchableOpacity>
 
           <View style={styles.footerContainer}>
-            <TouchableOpacity onPress={() => router.back()}>
+            <TouchableOpacity onPress={() => router.back()} accessibilityRole="link">
               <Text style={styles.linkText}>Volver al Login</Text>
             </TouchableOpacity>
           </View>

@@ -23,6 +23,18 @@ export interface Presupuesto {
   pre_estado: number;
 }
 
+export type TipoMovimientoHogar = 'ingreso' | 'gasto';
+
+export interface MovimientoHogar {
+  id_movimiento_hogar: number;
+  id_usuario: number;
+  tipo: TipoMovimientoHogar;
+  concepto: string;
+  categoria: string;
+  monto: number;
+  fecha: string;
+}
+
 export interface Categoria {
   id_categoria: number;
   descripcion: string;
@@ -39,6 +51,14 @@ export interface Producto {
   imagen_url?: string;
   pro_estado: number;
   precio?: number | null;
+}
+
+export interface CalificacionProducto {
+  id_calificacion: number;
+  id_producto: number;
+  id_usuario: number;
+  puntuacion: number;
+  fecha_calificacion: string;
 }
 
 export interface Comercio {
