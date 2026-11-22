@@ -12,6 +12,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Image } from 'expo-image';
@@ -66,6 +67,7 @@ const UNIDADES_COMUNES = [
 ] as const;
 
 type OrdenProductos = 'relevancia' | 'nombre' | 'precio_asc' | 'precio_desc';
+const PRODUCT_NAME_COLLATOR = new Intl.Collator('es', { sensitivity: 'base' });
 
 function normalizarTextoBusqueda(texto: string): string {
   return texto
@@ -123,7 +125,9 @@ function getProductDefaultIcon(
 }
 
 export default function ProductosScreen() {
+  const { width } = useWindowDimensions();
   const { user, isAdmin, isComercio } = useAuth();
+  const isCompactAndroid = Platform.OS === 'android' && width < 400;
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [comercios, setComercios] = useState<Comercio[]>([]);
@@ -619,11 +623,12 @@ export default function ProductosScreen() {
     }
   };
 
-  const terminosBusqueda = normalizarTextoBusqueda(busqueda)
-    .split(/\s+/)
-    .filter(Boolean);
-  const productosFiltrados = productos
-    .filter((producto) => {
+  const productosFiltrados = useMemo(() => {
+    const terminosBusqueda = normalizarTextoBusqueda(busqueda)
+      .split(/\s+/)
+      .filter(Boolean);
+
+    const filtrados = productos.filter((producto) => {
       if (isComercio && soloMisProductos && producto.id_comercio !== miComercioId) {
         return false;
       }
@@ -656,10 +661,31 @@ export default function ProductosScreen() {
       ].join(' '));
 
       return terminosBusqueda.every((termino) => textoProducto.includes(termino));
-    })
-    .sort((a, b) => {
+    });
+
+    const relevanciaPorProducto = new Map<number, number>();
+    if (ordenProductos === 'relevancia' && terminosBusqueda.length > 0) {
+      for (const producto of filtrados) {
+        const nombre = normalizarTextoBusqueda(producto.nombre);
+        const marca = normalizarTextoBusqueda(producto.marca ?? '');
+        const codigoBarras = normalizarTextoBusqueda(producto.codigo_barras ?? '');
+        const relevancia = terminosBusqueda.reduce(
+          (total, termino) =>
+            total +
+            (nombre === termino ? 5 : 0) +
+            (nombre.startsWith(termino) ? 3 : 0) +
+            (nombre.includes(termino) ? 2 : 0) +
+            (marca.includes(termino) ? 1 : 0) +
+            (codigoBarras.includes(termino) ? 5 : 0),
+          0
+        );
+        relevanciaPorProducto.set(producto.id_producto, relevancia);
+      }
+    }
+
+    return filtrados.sort((a, b) => {
       if (ordenProductos === 'nombre') {
-        return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+        return PRODUCT_NAME_COLLATOR.compare(a.nombre, b.nombre);
       }
 
       if (ordenProductos === 'precio_asc' || ordenProductos === 'precio_desc') {
@@ -672,31 +698,28 @@ export default function ProductosScreen() {
         if (tienePrecioA && tienePrecioB && precioA !== precioB) {
           return ordenProductos === 'precio_asc' ? precioA - precioB : precioB - precioA;
         }
-        return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
-      }
-
-      if (terminosBusqueda.length > 0) {
-        const score = (producto: Producto) => {
-          const nombreNormalizado = normalizarTextoBusqueda(producto.nombre);
-          const marcaNormalizada = normalizarTextoBusqueda(producto.marca ?? '');
-          const codigoBarrasNormalizado = normalizarTextoBusqueda(producto.codigo_barras ?? '');
-          return terminosBusqueda.reduce(
-            (total, termino) =>
-              total +
-              (nombreNormalizado === termino ? 5 : 0) +
-              (nombreNormalizado.startsWith(termino) ? 3 : 0) +
-              (nombreNormalizado.includes(termino) ? 2 : 0) +
-              (marcaNormalizada.includes(termino) ? 1 : 0) +
-              (codigoBarrasNormalizado.includes(termino) ? 5 : 0),
-            0
-          );
-        };
-        const diferenciaRelevancia = score(b) - score(a);
+      } else if (terminosBusqueda.length > 0) {
+        const diferenciaRelevancia =
+          (relevanciaPorProducto.get(b.id_producto) ?? 0) -
+          (relevanciaPorProducto.get(a.id_producto) ?? 0);
         if (diferenciaRelevancia !== 0) return diferenciaRelevancia;
       }
 
-      return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+      return PRODUCT_NAME_COLLATOR.compare(a.nombre, b.nombre);
     });
+  }, [
+    busqueda,
+    categoriasFiltro,
+    categoriasPorId,
+    comerciosFiltro,
+    comerciosPorId,
+    isComercio,
+    miComercioId,
+    ordenProductos,
+    productos,
+    soloConPrecio,
+    soloMisProductos,
+  ]);
 
   const cantidadFiltrosActivos =
     categoriasFiltro.length +
@@ -1440,12 +1463,16 @@ export default function ProductosScreen() {
       ) : (
         <FlatList
           style={styles.productList}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            isCompactAndroid && styles.listContentCompact,
+          ]}
+          removeClippedSubviews={Platform.OS === 'android'}
           data={productosFiltrados}
           keyExtractor={(item) => String(item.id_producto)}
-          initialNumToRender={12}
-          maxToRenderPerBatch={12}
-          windowSize={7}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          windowSize={5}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => {
             const cat = categoriasPorId.get(item.id_categoria);
@@ -1463,12 +1490,17 @@ export default function ProductosScreen() {
                 key={item.id_producto}
                 style={[
                   styles.productCard,
+                  isCompactAndroid && styles.productCardCompact,
                   esMio && styles.productCardPropio,
                 ]}
               >
                 {/* Imagen del producto o Icono temático */}
                 <View
-                  style={[styles.productImageWrapper, { backgroundColor: iconInfo.bg }]}
+                  style={[
+                    styles.productImageWrapper,
+                    isCompactAndroid && styles.productImageWrapperCompact,
+                    { backgroundColor: iconInfo.bg },
+                  ]}
                 >
                   <ProductImage
                     productName={item.nombre}
@@ -1494,7 +1526,13 @@ export default function ProductosScreen() {
                     accessibilityLabel={`${expanded ? 'Ocultar' : 'Mostrar'} toda la información de ${item.nombre}`}
                     accessibilityState={{ expanded }}
                   >
-                    <Text style={styles.productName} accessibilityRole="header">{item.nombre}</Text>
+                    <Text
+                      style={styles.productName}
+                      numberOfLines={isCompactAndroid ? 2 : undefined}
+                      accessibilityRole="header"
+                    >
+                      {item.nombre}
+                    </Text>
                     {esMio && (
                       <View style={styles.badgePropio}>
                         <Text style={styles.badgePropioText}>Tu Comercio</Text>
@@ -1530,7 +1568,7 @@ export default function ProductosScreen() {
                   ) : null}
 
                   {/* Precio del producto y lectura en voz alta accesible */}
-                  <View style={styles.priceContainer}>
+                  <View style={[styles.priceContainer, isCompactAndroid && styles.priceContainerCompact]}>
                     <Text style={styles.priceLabel}>Precio:</Text>
                     {demoDiscount ? (
                       <View style={styles.discountPriceGroup}>
@@ -1552,55 +1590,65 @@ export default function ProductosScreen() {
                     />
                   </View>
 
-                  {/* Botón colaborativo de reporte y consulta de precios de barrio (Nonaka & Takeuchi) */}
-                  <Pressable
-                    onPress={() => void abrirModalReportePrecio(item)}
-                    style={styles.collabPriceButton}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Reportar o ver precios de la comunidad para ${item.nombre}`}
-                  >
-                    <Ionicons name="people-outline" size={14} color="#0369a1" />
-                    <Text style={styles.collabPriceButtonText}>Precios colaborativos de la comunidad</Text>
-                  </Pressable>
+                  {(!isCompactAndroid || expanded) && (
+                    <>
+                      {/* Botón colaborativo de reporte y consulta de precios de barrio */}
+                      <Pressable
+                        onPress={() => void abrirModalReportePrecio(item)}
+                        style={styles.collabPriceButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Reportar o ver precios de la comunidad para ${item.nombre}`}
+                      >
+                        <Ionicons name="people-outline" size={14} color="#0369a1" />
+                        <Text style={styles.collabPriceButtonText}>
+                          Precios colaborativos de la comunidad
+                        </Text>
+                      </Pressable>
 
-                  <View style={styles.ratingRow}>
-                    <View style={styles.ratingStars}>
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <Pressable
-                          key={star}
-                          onPress={() => void calificarProducto(item.id_producto, star)}
-                          disabled={!user || calificandoProducto === item.id_producto}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Calificar ${item.nombre} con ${star} estrellas`}
-                          accessibilityHint={!user ? 'Inicia sesión para calificar este producto' : 'Guarda tu calificación para este producto'}
-                          accessibilityState={{
-                            disabled: !user || calificandoProducto === item.id_producto,
-                            selected: calificaciones[item.id_producto]?.miCalificacion === star,
-                            busy: calificandoProducto === item.id_producto,
-                          }}
-                          hitSlop={6}
-                          style={styles.ratingStarButton}
-                        >
-                          <Ionicons
-                            name={star <= (calificaciones[item.id_producto]?.miCalificacion ?? 0) ? 'star' : 'star-outline'}
-                            size={15}
-                            color="#eab308"
-                          />
-                        </Pressable>
-                      ))}
-                    </View>
-                    <Text style={styles.ratingSummary}>
-                      {calificaciones[item.id_producto]
-                        ? `Real: ${calificaciones[item.id_producto].promedio.toFixed(1)} (${calificaciones[item.id_producto].cantidad})`
-                        : 'Sin calificaciones reales'}
-                    </Text>
-                  </View>
-                  <View style={styles.demoRatingRow} accessible accessibilityLabel={`Calificación de demostración: ${demoRating.toFixed(1)} de 5`}>
-                    <Ionicons name="star" size={12} color="#d97706" />
-                    <Text style={styles.demoRatingText}>
-                      Calificación de demostración: {demoRating.toFixed(1)}/5
-                    </Text>
-                  </View>
+                      <View style={styles.ratingRow}>
+                        <View style={styles.ratingStars}>
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Pressable
+                              key={star}
+                              onPress={() => void calificarProducto(item.id_producto, star)}
+                              disabled={!user || calificandoProducto === item.id_producto}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Calificar ${item.nombre} con ${star} estrellas`}
+                              accessibilityHint={!user ? 'Inicia sesión para calificar este producto' : 'Guarda tu calificación para este producto'}
+                              accessibilityState={{
+                                disabled: !user || calificandoProducto === item.id_producto,
+                                selected: calificaciones[item.id_producto]?.miCalificacion === star,
+                                busy: calificandoProducto === item.id_producto,
+                              }}
+                              hitSlop={6}
+                              style={styles.ratingStarButton}
+                            >
+                              <Ionicons
+                                name={star <= (calificaciones[item.id_producto]?.miCalificacion ?? 0) ? 'star' : 'star-outline'}
+                                size={15}
+                                color="#eab308"
+                              />
+                            </Pressable>
+                          ))}
+                        </View>
+                        <Text style={styles.ratingSummary}>
+                          {calificaciones[item.id_producto]
+                            ? `Real: ${calificaciones[item.id_producto].promedio.toFixed(1)} (${calificaciones[item.id_producto].cantidad})`
+                            : 'Sin calificaciones reales'}
+                        </Text>
+                      </View>
+                      <View
+                        style={styles.demoRatingRow}
+                        accessible
+                        accessibilityLabel={`Calificación de demostración: ${demoRating.toFixed(1)} de 5`}
+                      >
+                        <Ionicons name="star" size={12} color="#d97706" />
+                        <Text style={styles.demoRatingText}>
+                          Calificación de demostración: {demoRating.toFixed(1)}/5
+                        </Text>
+                      </View>
+                    </>
+                  )}
                   <Pressable
                     onPress={() => setExpandedProductId(expanded ? null : item.id_producto)}
                     style={styles.detailsToggle}
@@ -1609,7 +1657,11 @@ export default function ProductosScreen() {
                     accessibilityHint="Expande o contrae los detalles del producto"
                     accessibilityState={{ expanded }}
                   >
-                    <Text style={styles.detailsToggleText}>{expanded ? 'Ocultar detalles' : 'Ver todos los detalles'}</Text>
+                    <Text style={styles.detailsToggleText}>
+                      {isCompactAndroid
+                        ? expanded ? 'Ver menos' : 'Ver más detalles'
+                        : expanded ? 'Ocultar detalles' : 'Ver todos los detalles'}
+                    </Text>
                     <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#166534" />
                   </Pressable>
                   {expanded && (
@@ -2251,6 +2303,9 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     gap: 12,
   },
+  listContentCompact: {
+    paddingHorizontal: 12,
+  },
   productList: {
     flex: 1,
   },
@@ -2263,6 +2318,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e7ece7',
     boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.04)',
+  },
+  productCardCompact: {
+    padding: 10,
+    alignItems: 'flex-start',
   },
   productCardPropio: {
     borderColor: '#bae6fd',
@@ -2277,12 +2336,18 @@ const styles = StyleSheet.create({
     marginRight: 12,
     overflow: 'hidden',
   },
+  productImageWrapperCompact: {
+    width: 60,
+    height: 60,
+    marginRight: 10,
+  },
   productImage: {
     width: '100%',
     height: '100%',
   },
   productInfo: {
     flex: 1,
+    minWidth: 0,
   },
   nameRow: {
     flexDirection: 'row',
@@ -2291,6 +2356,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   productName: {
+    flexShrink: 1,
     fontSize: 15,
     fontWeight: '700',
     color: '#0f172a',
@@ -2364,6 +2430,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
   },
+  priceContainerCompact: {
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
   priceLabel: {
     fontSize: 12,
     color: '#64748b',
@@ -2392,10 +2462,16 @@ const styles = StyleSheet.create({
     borderColor: '#bae6fd',
     alignSelf: 'flex-start',
   },
+  collabPriceButtonCompact: {
+    maxWidth: '100%',
+  },
   collabPriceButtonText: {
     fontSize: 11,
     fontWeight: '700',
     color: '#0369a1',
+  },
+  collabPriceButtonTextCompact: {
+    flexShrink: 1,
   },
   reportFormCard: {
     backgroundColor: '#f8fafc',
@@ -2524,15 +2600,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 2,
   },
+  ratingStarButtonCompact: {
+    minWidth: 28,
+    minHeight: 36,
+    padding: 0,
+  },
   ratingSummary: {
     color: '#64748b',
     fontSize: 11,
+    flexShrink: 1,
   },
   demoRatingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     marginTop: 2,
+  },
+  demoRatingRowCompact: {
+    flexWrap: 'wrap',
   },
   demoRatingText: {
     color: '#92400e',

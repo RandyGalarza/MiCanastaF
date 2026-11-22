@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Link, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
@@ -59,6 +59,8 @@ function getBudgetStatus(budget: Presupuesto, today: string): string {
 
 export default function PresupuestoScreen() {
   const { user, isComercio } = useAuth();
+  const loadedViewKeyRef = useRef<string | null>(null);
+  const [loadedViewKey, setLoadedViewKey] = useState<string | null>(null);
   const [presupuestos, setPresupuestos] = useState<Presupuesto[]>([]);
   const [purchases, setPurchases] = useState<Compra[]>([]);
   const [householdMovements, setHouseholdMovements] = useState<MovimientoHogar[]>([]);
@@ -85,6 +87,9 @@ export default function PresupuestoScreen() {
   const [reminderSaved, setReminderSaved] = useState(false);
 
   const cargar = useCallback(async () => {
+    const viewKey = user ? `${user.id_usuario}:${isComercio ? 'comercio' : 'usuario'}` : 'invitado';
+    const hasCachedData = loadedViewKeyRef.current === viewKey;
+
     if (!user) {
       setPresupuestos([]);
       setPurchases([]);
@@ -94,19 +99,26 @@ export default function PresupuestoScreen() {
       setWalletMovements([]);
       setPendingPayments([]);
       setLoading(false);
+      setLoadError(false);
+      loadedViewKeyRef.current = viewKey;
+      setLoadedViewKey(viewKey);
       return;
     }
-    setLoading(true);
+
+    if (!hasCachedData) setLoading(true);
     setLoadError(false);
     try {
       if (isComercio) {
         setPresupuestos([]);
         setPurchases([]);
         setHouseholdMovements([]);
-        setSales(user.id_comercio ? await obtenerVentasComercio(user.id_comercio) : []);
+        const userSales = user.id_comercio ? await obtenerVentasComercio(user.id_comercio) : [];
+        setSales(userSales);
         setWalletBalance(0);
         setWalletMovements([]);
         setPendingPayments([]);
+        loadedViewKeyRef.current = viewKey;
+        setLoadedViewKey(viewKey);
         return;
       }
       const [result, userPurchases, household, balance, movements, openPayments] = await Promise.all([
@@ -128,6 +140,8 @@ export default function PresupuestoScreen() {
           ? current
           : result.find((item) => item.pre_estado === 1)?.id_presupuesto ?? result[0]?.id_presupuesto ?? null
       );
+      loadedViewKeyRef.current = viewKey;
+      setLoadedViewKey(viewKey);
     } catch (error) {
       console.error('Error cargando presupuestos:', error);
       setLoadError(true);
@@ -166,6 +180,8 @@ export default function PresupuestoScreen() {
     : 0;
   const today = localDate(new Date());
   const budgetStatus = presupuestoActual ? getBudgetStatus(presupuestoActual, today) : '';
+  const viewKey = user ? `${user.id_usuario}:${isComercio ? 'comercio' : 'usuario'}` : 'invitado';
+  const hasCachedData = loadedViewKey === viewKey;
 
   const startCreate = () => {
     setEditingBudget(null);
@@ -343,44 +359,72 @@ export default function PresupuestoScreen() {
         )}
       </View>
       {user && !isComercio && (
-        <Link href="/movimientos" style={styles.movementsLink} accessibilityRole="link" accessibilityLabel="Registrar ingresos y gastos del hogar">
-          <Ionicons name="swap-vertical-outline" size={17} color="#166534" />
-          <Text style={styles.movementsLinkText}>Registrar ingresos y gastos</Text>
-          <Ionicons name="chevron-forward" size={15} color="#64748b" />
+        <Link href="/movimientos" asChild>
+          <Pressable
+            style={styles.movementsLink}
+            accessibilityRole="link"
+            accessibilityLabel="Registrar ingresos y gastos del hogar"
+          >
+            <Ionicons name="swap-vertical-outline" size={20} color="#166534" />
+            <Text style={styles.movementsLinkText}>Registrar ingresos y gastos</Text>
+            <Ionicons name="chevron-forward" size={17} color="#64748b" />
+          </Pressable>
         </Link>
       )}
       {user && !isComercio ? (
         <View style={styles.householdActions}>
-          <Link href="/deudas-tienda" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Registrar deudas de tienda">
-            <Ionicons name="receipt-outline" size={17} color="#166534" />
-            <Text style={styles.householdActionText}>Fiado</Text>
+          <Link href="/deudas-tienda" asChild>
+            <Pressable style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Registrar deudas de tienda">
+              <Ionicons name="receipt-outline" size={22} color="#166534" />
+              <Text style={styles.householdActionText}>Fiado</Text>
+            </Pressable>
           </Link>
-          <Link href="/metas-ahorro" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver metas de ahorro">
-            <Ionicons name="flag-outline" size={17} color="#166534" />
-            <Text style={styles.householdActionText}>Metas</Text>
+          <Link href="/metas-ahorro" asChild>
+            <Pressable style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver metas de ahorro">
+              <Ionicons name="flag-outline" size={22} color="#166534" />
+              <Text style={styles.householdActionText}>Metas</Text>
+            </Pressable>
           </Link>
-          <Link href="/recetas-economicas" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Buscar recetas económicas">
-            <Ionicons name="restaurant-outline" size={17} color="#166534" />
-            <Text style={styles.householdActionText}>Recetas</Text>
+          <Link href="/recetas-economicas" asChild>
+            <Pressable style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Buscar recetas económicas">
+              <Ionicons name="restaurant-outline" size={22} color="#166534" />
+              <Text style={styles.householdActionText}>Recetas</Text>
+            </Pressable>
           </Link>
-          <Link href="/perecederos" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver alimentos perecederos y recordatorios">
-            <Ionicons name="leaf-outline" size={17} color="#166534" />
-            <Text style={styles.householdActionText}>Perecederos</Text>
+          <Link href="/perecederos" asChild>
+            <Pressable style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver alimentos perecederos y recordatorios">
+              <Ionicons name="leaf-outline" size={22} color="#166534" />
+              <Text style={styles.householdActionText}>Perecederos</Text>
+            </Pressable>
           </Link>
-          <Link href="/ahorro-mensual" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver el informe mensual de ahorro estimado">
-            <Ionicons name="trending-down-outline" size={17} color="#166534" />
-            <Text style={styles.householdActionText}>Informe</Text>
+          <Link href="/ahorro-mensual" asChild>
+            <Pressable style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver el informe mensual de ahorro estimado">
+              <Ionicons name="trending-down-outline" size={22} color="#166534" />
+              <Text style={styles.householdActionText}>Informe</Text>
+            </Pressable>
           </Link>
-          <Link href="/canasta-hogar" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver canasta recomendada para mi hogar">
-            <Ionicons name="people-outline" size={17} color="#166534" />
-            <Text style={styles.householdActionText}>Mi hogar</Text>
+          <Link href="/canasta-hogar" asChild>
+            <Pressable style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver canasta recomendada para mi hogar">
+              <Ionicons name="people-outline" size={22} color="#166534" />
+              <Text style={styles.householdActionText}>Mi hogar</Text>
+            </Pressable>
           </Link>
-          <Link href="/hogar-compartido" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Configurar el hogar compartido">
-            <Ionicons name="people-circle-outline" size={17} color="#166534" />
-            <Text style={styles.householdActionText}>Compartir</Text>
+          <Link href="/hogar-compartido" asChild>
+            <Pressable style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Configurar el hogar compartido">
+              <Ionicons name="people-circle-outline" size={22} color="#166534" />
+              <Text style={styles.householdActionText}>Compartir</Text>
+            </Pressable>
           </Link>
         </View>
       ) : null}
+      {loadError && hasCachedData && (
+        <View style={styles.refreshWarning} accessibilityRole="alert">
+          <Ionicons name="alert-circle-outline" size={17} color="#b45309" />
+          <Text style={styles.refreshWarningText}>
+            No se pudo actualizar. Se muestran los últimos datos cargados.
+          </Text>
+        </View>
+      )}
 
       {!user ? (
         <View style={styles.emptyCard}>
@@ -391,7 +435,7 @@ export default function PresupuestoScreen() {
         </View>
       ) : loading ? (
         <View style={styles.emptyCard} accessibilityLiveRegion="polite"><ActivityIndicator color="#16a34a" accessibilityLabel={isComercio ? 'Cargando ventas' : 'Cargando presupuesto'} /><Text style={styles.bodyText}>{isComercio ? 'Cargando tus ventas…' : 'Cargando tu presupuesto…'}</Text></View>
-      ) : loadError ? (
+      ) : loadError && !hasCachedData ? (
         <View style={styles.emptyCard}>
           <Ionicons name="alert-circle-outline" size={30} color="#dc2626" />
           <Text style={styles.cardTitle} accessibilityRole="header">No pudimos cargar tu presupuesto</Text>
@@ -1147,11 +1191,11 @@ const styles = StyleSheet.create({
   heading: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 2 },
   headingIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
   headingCopy: { flex: 1 },
-  movementsLink: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#eaf6eb' },
-  movementsLinkText: { flex: 1, color: '#166534', fontSize: 12, fontWeight: '700' },
+  movementsLink: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#eaf6eb' },
+  movementsLinkText: { flex: 1, color: '#166534', fontSize: 13, fontWeight: '700' },
   householdActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  householdAction: { flexGrow: 1, flexBasis: '31%', minWidth: 96, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 6, borderRadius: 12, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcebdc' },
-  householdActionText: { color: '#166534', fontSize: 11, fontWeight: '800' },
+  householdAction: { flexGrow: 0, flexBasis: '31%', minWidth: 96, minHeight: 64, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 8, borderRadius: 14, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcebdc' },
+  householdActionText: { color: '#166534', fontSize: 12, fontWeight: '800', textAlign: 'center' },
   newBudgetButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#168344' },
   newBudgetButtonText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
   title: { color: '#14532d', fontSize: 23, fontWeight: '800' },
@@ -1283,6 +1327,8 @@ const styles = StyleSheet.create({
   periodLabel: { color: '#bbf7d0', fontSize: 10, marginBottom: 3 },
   periodValue: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
   infoCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 13, backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', borderRadius: 14 },
+  refreshWarning: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 18, marginBottom: 12, padding: 10, backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 12 },
+  refreshWarningText: { flex: 1, color: '#92400e', fontSize: 12 },
   infoIcon: { marginTop: 1 },
   infoCopy: { flex: 1, gap: 3 },
   infoTitle: { color: '#1e3a8a', fontSize: 12, fontWeight: '800' },
