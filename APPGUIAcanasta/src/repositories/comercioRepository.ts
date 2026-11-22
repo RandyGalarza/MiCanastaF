@@ -5,7 +5,9 @@ export async function crearComercio(
   nombre: string,
   direccion?: string,
   telefono?: string,
-  tipo_comercio?: string
+  tipo_comercio?: string,
+  latitud?: number | null,
+  longitud?: number | null
 ): Promise<number> {
   const db = await getDatabase();
 
@@ -16,15 +18,19 @@ export async function crearComercio(
       nombre,
       direccion,
       telefono,
-      tipo_comercio
+      tipo_comercio,
+      latitud,
+      longitud
     )
-    VALUES (?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
     `,
     [
       nombre,
       direccion ?? null,
       telefono ?? null,
-      tipo_comercio ?? null
+      tipo_comercio ?? null,
+      latitud ?? null,
+      longitud ?? null
     ]
   );
 
@@ -49,7 +55,9 @@ export async function actualizarComercio(
   nombre: string,
   direccion?: string,
   telefono?: string,
-  tipo_comercio?: string
+  tipo_comercio?: string,
+  latitud?: number | null,
+  longitud?: number | null
 ): Promise<void> {
   const db = await getDatabase();
 
@@ -60,7 +68,9 @@ export async function actualizarComercio(
       nombre = ?,
       direccion = ?,
       telefono = ?,
-      tipo_comercio = ?
+      tipo_comercio = ?,
+      latitud = ?,
+      longitud = ?
     WHERE id_comercio = ?
     `,
     [
@@ -68,6 +78,8 @@ export async function actualizarComercio(
       direccion ?? null,
       telefono ?? null,
       tipo_comercio ?? null,
+      latitud ?? null,
+      longitud ?? null,
       id_comercio
     ]
   );

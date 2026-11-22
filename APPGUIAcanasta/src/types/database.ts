@@ -35,6 +35,26 @@ export interface MovimientoHogar {
   fecha: string;
 }
 
+export interface DeudaTienda {
+  id_deuda: number;
+  id_usuario: number;
+  tienda: string;
+  concepto: string;
+  monto: number;
+  fecha: string;
+  pagada: number;
+}
+
+export interface MetaAhorro {
+  id_meta_ahorro: number;
+  id_usuario: number;
+  nombre: string;
+  monto_objetivo: number;
+  monto_ahorrado: number;
+  fecha_objetivo: string | null;
+  fecha_creacion: string;
+}
+
 export interface Categoria {
   id_categoria: number;
   descripcion: string;
@@ -48,6 +68,7 @@ export interface Producto {
   descripcion?: string;
   unidad_medida: string;
   marca?: string;
+  codigo_barras?: string | null;
   imagen_url?: string;
   pro_estado: number;
   precio?: number | null;
@@ -67,6 +88,8 @@ export interface Comercio {
   direccion?: string;
   telefono?: string;
   tipo_comercio?: string;
+  latitud?: number | null;
+  longitud?: number | null;
   com_estado: number;
 }
 
@@ -161,4 +184,20 @@ export interface VentaComercio {
   nombre_lista: string;
   total: number;
   productos: DetalleCompra[];
+}
+
+export interface ReportePrecio {
+  id_reporte: number;
+  id_producto: number;
+  id_comercio: number;
+  id_usuario: number;
+  precio_reportado: number;
+  comentario?: string;
+  fecha_reporte: string;
+  confirmaciones: number;
+  estado: string;
+  nombre_producto?: string;
+  nombre_comercio?: string;
+  nombre_usuario?: string;
+  usuario_confirmo?: boolean;
 }

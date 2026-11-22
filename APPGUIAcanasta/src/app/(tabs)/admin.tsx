@@ -53,6 +53,8 @@ export default function AdminScreen() {
   const [comDireccion, setComDireccion] = useState('');
   const [comTelefono, setComTelefono] = useState('');
   const [comTipo, setComTipo] = useState('Supermercado');
+  const [comLatitud, setComLatitud] = useState('');
+  const [comLongitud, setComLongitud] = useState('');
 
   const [modalCategoria, setModalCategoria] = useState(false);
   const [catDescripcion, setCatDescripcion] = useState('');
@@ -153,6 +155,8 @@ export default function AdminScreen() {
     setComDireccion('');
     setComTelefono('');
     setComTipo('Supermercado');
+    setComLatitud('');
+    setComLongitud('');
     setModalComercio(true);
   };
 
@@ -162,12 +166,20 @@ export default function AdminScreen() {
     setComDireccion(comercio.direccion ?? '');
     setComTelefono(comercio.telefono ?? '');
     setComTipo(comercio.tipo_comercio ?? '');
+    setComLatitud(comercio.latitud == null ? '' : String(comercio.latitud));
+    setComLongitud(comercio.longitud == null ? '' : String(comercio.longitud));
     setModalComercio(true);
   };
 
   const handleGuardarComercio = async () => {
     if (!comNombre.trim()) {
       showToast('El nombre del comercio es requerido', 'error');
+      return;
+    }
+    const latitude = comLatitud.trim() ? Number(comLatitud.replace(',', '.')) : null;
+    const longitude = comLongitud.trim() ? Number(comLongitud.replace(',', '.')) : null;
+    if ((latitude == null) !== (longitude == null) || (latitude != null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude! < -180 || longitude! > 180))) {
+      showToast('Ingresa latitud (-90 a 90) y longitud (-180 a 180) válidas.', 'error');
       return;
     }
     try {
@@ -178,7 +190,9 @@ export default function AdminScreen() {
           comNombre.trim(),
           comDireccion.trim() || undefined,
           comTelefono.trim() || undefined,
-          comTipo.trim() || undefined
+          comTipo.trim() || undefined,
+          latitude,
+          longitude
         );
         showToast('Datos del comercio actualizados', 'success');
       } else {
@@ -186,7 +200,9 @@ export default function AdminScreen() {
           comNombre.trim(),
           comDireccion.trim() || undefined,
           comTelefono.trim() || undefined,
-          comTipo.trim() || 'Supermercado'
+          comTipo.trim() || 'Supermercado',
+          latitude,
+          longitude
         );
         showToast('Comercio agregado', 'success');
       }
@@ -194,6 +210,8 @@ export default function AdminScreen() {
       setComNombre('');
       setComDireccion('');
       setComTelefono('');
+      setComLatitud('');
+      setComLongitud('');
       setModalComercio(false);
       await cargarDatos();
     } catch (e) {
@@ -689,6 +707,12 @@ export default function AdminScreen() {
                 onChangeText={setComTelefono}
                 accessibilityLabel="Teléfono del comercio"
               />
+              <Text style={styles.fieldLabel}>Ubicación para el mapa (opcional)</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Latitud" keyboardType="decimal-pad" value={comLatitud} onChangeText={setComLatitud} accessibilityLabel="Latitud del comercio" />
+                <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Longitud" keyboardType="decimal-pad" value={comLongitud} onChangeText={setComLongitud} accessibilityLabel="Longitud del comercio" />
+              </View>
+              <Text style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>Consulta las coordenadas en un mapa para que las familias puedan encontrar esta tienda.</Text>
             </ScrollView>
 
             <View style={styles.modalFooter}>

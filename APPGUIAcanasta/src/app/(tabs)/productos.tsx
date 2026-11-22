@@ -13,12 +13,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
-import { Producto, Comercio, Categoria, ListaCompra } from '@/types/database';
+import { Producto, Comercio, Categoria, ListaCompra, ReportePrecio } from '@/types/database';
 import {
   crearProducto,
   obtenerProductos,
@@ -42,6 +43,12 @@ import {
   obtenerResumenCalificaciones,
   ResumenCalificacionProducto,
 } from '@/repositories/calificacionProductoRepository';
+import {
+  crearReportePrecio,
+  confirmarReportePrecio,
+  obtenerReportesPorProducto,
+} from '@/repositories/reportePrecioRepository';
+import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
 
 const UNIDADES_COMUNES = [
   'Unidad',
@@ -138,6 +145,16 @@ export default function ProductosScreen() {
   const [addingProductToList, setAddingProductToList] = useState(false);
   const [newShoppingListName, setNewShoppingListName] = useState('');
 
+  // Modal para reporte de precios colaborativos (Nonaka & Takeuchi)
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [productoParaReporte, setProductoParaReporte] = useState<Producto | null>(null);
+  const [reportesDelProducto, setReportesDelProducto] = useState<ReportePrecio[]>([]);
+  const [cargandoReportes, setCargandoReportes] = useState(false);
+  const [precioReportado, setPrecioReportado] = useState('');
+  const [comercioReportadoId, setComercioReportadoId] = useState<number | null>(null);
+  const [comentarioReporte, setComentarioReporte] = useState('');
+  const [enviandoReporte, setEnviandoReporte] = useState(false);
+
   // Filtro para usuarios comercio: ver todos o ver solo los suyos
   const [soloMisProductos, setSoloMisProductos] = useState(false);
 
@@ -147,6 +164,10 @@ export default function ProductosScreen() {
   const [guardando, setGuardando] = useState(false);
   const [nombre, setNombre] = useState('');
   const [marca, setMarca] = useState('');
+  const [codigoBarras, setCodigoBarras] = useState('');
+  const [barcodeScannerVisible, setBarcodeScannerVisible] = useState(false);
+  const [barcodeScanLocked, setBarcodeScanLocked] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [precioInput, setPrecioInput] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [unidadMedida, setUnidadMedida] = useState('Unidad');
@@ -328,6 +349,80 @@ export default function ProductosScreen() {
     }
   };
 
+  const abrirModalReportePrecio = async (prod: Producto) => {
+    setProductoParaReporte(prod);
+    setPrecioReportado(prod.precio ? String(prod.precio) : '');
+    setComercioReportadoId(prod.id_comercio || (comercios[0]?.id_comercio ?? 1));
+    setComentarioReporte('');
+    setReportModalVisible(true);
+    setCargandoReportes(true);
+    try {
+      const reps = await obtenerReportesPorProducto(prod.id_producto, user?.id_usuario);
+      setReportesDelProducto(reps);
+    } catch (e) {
+      console.warn('Error cargando reportes:', e);
+    } finally {
+      setCargandoReportes(false);
+    }
+  };
+
+  const handleEnviarReporte = async () => {
+    if (!user) {
+      showToast('Inicia sesión para reportar un precio.', 'info');
+      return;
+    }
+    if (!productoParaReporte || !comercioReportadoId) return;
+    const num = parseFloat(precioReportado.replace(/[^0-9.]/g, ''));
+    if (isNaN(num) || num <= 0) {
+      showToast('Ingresa un precio válido.', 'error');
+      return;
+    }
+
+    setEnviandoReporte(true);
+    try {
+      await crearReportePrecio(
+        productoParaReporte.id_producto,
+        comercioReportadoId,
+        user.id_usuario,
+        num,
+        comentarioReporte
+      );
+      showToast('¡Gracias por colaborar! Precio reportado con éxito.', 'success');
+      const reps = await obtenerReportesPorProducto(productoParaReporte.id_producto, user.id_usuario);
+      setReportesDelProducto(reps);
+      setPrecioReportado('');
+      setComentarioReporte('');
+      await cargarDatos();
+    } catch (err) {
+      console.error(err);
+      showToast('No se pudo enviar el reporte.', 'error');
+    } finally {
+      setEnviandoReporte(false);
+    }
+  };
+
+  const handleConfirmarReporte = async (idReporte: number) => {
+    if (!user) {
+      showToast('Inicia sesión para confirmar precios.', 'info');
+      return;
+    }
+    try {
+      const ok = await confirmarReportePrecio(idReporte, user.id_usuario);
+      if (ok) {
+        showToast('¡Precio verificado! Gracias por confirmar.', 'success');
+        if (productoParaReporte) {
+          const reps = await obtenerReportesPorProducto(productoParaReporte.id_producto, user.id_usuario);
+          setReportesDelProducto(reps);
+        }
+      } else {
+        showToast('Ya habías confirmado este precio anteriormente.', 'info');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Error al confirmar.', 'error');
+    }
+  };
+
   const seleccionarImagen = async () => {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -359,6 +454,7 @@ export default function ProductosScreen() {
     setProductoEnEdicion(null);
     setNombre('');
     setMarca('');
+    setCodigoBarras('');
     setPrecioInput('');
     setDescripcion('');
     setUnidadMedida('Unidad');
@@ -376,6 +472,18 @@ export default function ProductosScreen() {
     setModalVisible(true);
   };
 
+  const abrirEscanerCodigo = async () => {
+    if (!cameraPermission?.granted) {
+      const permission = await requestCameraPermission();
+      if (!permission.granted) {
+        showToast('Permite el acceso a la cámara para leer el código del empaque.', 'error');
+        return;
+      }
+    }
+    setBarcodeScanLocked(false);
+    setBarcodeScannerVisible(true);
+  };
+
   const abrirModalEditar = (prod: Producto) => {
     if (!puedeGestionarProducto(prod)) {
       showToast('No tienes permiso para editar este producto', 'error');
@@ -384,6 +492,7 @@ export default function ProductosScreen() {
     setProductoEnEdicion(prod);
     setNombre(prod.nombre);
     setMarca(prod.marca || '');
+    setCodigoBarras(prod.codigo_barras || '');
     setPrecioInput(prod.precio ? String(prod.precio) : '');
     setDescripcion(prod.descripcion || '');
     setImagenUrl(prod.imagen_url || '');
@@ -443,7 +552,8 @@ export default function ProductosScreen() {
           unidadFinal,
           marca.trim() || undefined,
           descripcion.trim() || undefined,
-          imagenUrl.trim() || undefined
+          imagenUrl.trim() || undefined,
+          codigoBarras.trim() || undefined
         );
         showToast('Producto actualizado exitosamente', 'success');
       } else {
@@ -454,7 +564,8 @@ export default function ProductosScreen() {
           unidadFinal,
           marca.trim() || undefined,
           descripcion.trim() || undefined,
-          imagenUrl.trim() || undefined
+          imagenUrl.trim() || undefined,
+          codigoBarras.trim() || undefined
         );
         showToast('Producto añadido exitosamente', 'success');
       }
@@ -568,13 +679,15 @@ export default function ProductosScreen() {
         const score = (producto: Producto) => {
           const nombreNormalizado = normalizarTextoBusqueda(producto.nombre);
           const marcaNormalizada = normalizarTextoBusqueda(producto.marca ?? '');
+          const codigoBarrasNormalizado = normalizarTextoBusqueda(producto.codigo_barras ?? '');
           return terminosBusqueda.reduce(
             (total, termino) =>
               total +
               (nombreNormalizado === termino ? 5 : 0) +
               (nombreNormalizado.startsWith(termino) ? 3 : 0) +
               (nombreNormalizado.includes(termino) ? 2 : 0) +
-              (marcaNormalizada.includes(termino) ? 1 : 0),
+              (marcaNormalizada.includes(termino) ? 1 : 0) +
+              (codigoBarrasNormalizado.includes(termino) ? 5 : 0),
             0
           );
         };
@@ -720,6 +833,169 @@ export default function ProductosScreen() {
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal de Precios Colaborativos Comunitarios */}
+      <Modal
+        visible={reportModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setReportModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.filterModalCard} accessibilityViewIsModal>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle} accessibilityRole="header">Precios Colaborativos</Text>
+                <Text style={styles.filterModalSubtitle} numberOfLines={1}>
+                  {productoParaReporte?.nombre}
+                </Text>
+              </View>
+              <BotonLecturaVoz
+                texto={`Precios de la comunidad para ${productoParaReporte?.nombre || 'este producto'}. Puedes reportar el precio que viste en tu tienda más cercana o confirmar los precios reportados por tus vecinos.`}
+                size="pequeno"
+                etiqueta="Voz"
+              />
+              <TouchableOpacity
+                onPress={() => setReportModalVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar modal"
+                hitSlop={8}
+                style={styles.closeFiltersButton}
+              >
+                <Ionicons name="close" size={22} color="#475569" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.filterModalScroll}
+              contentContainerStyle={styles.filterModalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Formulario para reportar precio */}
+              <View style={styles.reportFormCard}>
+                <Text style={styles.reportFormTitle}>📢 Reporta lo que viste en la tienda</Text>
+                <Text style={styles.reportFormHint}>
+                  Ayuda a tus vecinos a saber dónde está más barato. Selecciona el comercio y el precio.
+                </Text>
+
+                <Text style={styles.fieldLabel}>¿En qué tienda o supermercado?</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 4 }}>
+                  {comercios.map((com) => (
+                    <Pressable
+                      key={com.id_comercio}
+                      onPress={() => setComercioReportadoId(com.id_comercio)}
+                      style={[
+                        styles.chip,
+                        comercioReportadoId === com.id_comercio && styles.chipSelected,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          comercioReportadoId === com.id_comercio && styles.chipTextSelected,
+                        ]}
+                      >
+                        {com.nombre}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+
+                <Text style={styles.fieldLabel}>Precio observado ($ COP)</Text>
+                <TextInput
+                  value={precioReportado}
+                  onChangeText={setPrecioReportado}
+                  placeholder="Ej. 4200"
+                  placeholderTextColor="#94a3b8"
+                  keyboardType="numeric"
+                  style={styles.modalInput}
+                />
+
+                <Text style={styles.fieldLabel}>Comentario (opcional)</Text>
+                <TextInput
+                  value={comentarioReporte}
+                  onChangeText={setComentarioReporte}
+                  placeholder="Ej. Promoción de fin de semana, en el estante 2..."
+                  placeholderTextColor="#94a3b8"
+                  style={styles.modalInput}
+                />
+
+                <TouchableOpacity
+                  onPress={handleEnviarReporte}
+                  disabled={enviandoReporte}
+                  style={[styles.saveButton, enviandoReporte && styles.disabledButton]}
+                >
+                  {enviandoReporte ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Publicar precio para la comunidad</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {/* Lista de reportes existentes con confirmaciones ciudadanas */}
+              <Text style={[styles.filterSectionTitle, { marginTop: 16 }]}>
+                Precios observados por la comunidad
+              </Text>
+              {cargandoReportes ? (
+                <ActivityIndicator size="small" color="#16a34a" style={{ marginVertical: 12 }} />
+              ) : reportesDelProducto.length === 0 ? (
+                <View style={styles.emptyReportBox}>
+                  <Ionicons name="information-circle-outline" size={24} color="#64748b" />
+                  <Text style={styles.emptyReportText}>
+                    Sé el primero en reportar un precio para este producto en Riohacha.
+                  </Text>
+                </View>
+              ) : (
+                reportesDelProducto.map((rep) => (
+                  <View key={rep.id_reporte} style={styles.reportItemCard}>
+                    <View style={styles.reportItemHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.reportItemStore}>{rep.nombre_comercio || 'Comercio local'}</Text>
+                        <Text style={styles.reportItemDate}>
+                          Reportado el {new Date(rep.fecha_reporte).toLocaleDateString('es-CO')} por {rep.nombre_usuario || 'Vecino'}
+                        </Text>
+                      </View>
+                      <Text style={styles.reportItemPrice}>${Number(rep.precio_reportado).toLocaleString('es-CO')}</Text>
+                    </View>
+                    {rep.comentario ? (
+                      <Text style={styles.reportItemComment}>{`"${rep.comentario}"`}</Text>
+                    ) : null}
+                    <View style={styles.reportItemFooter}>
+                      <View style={styles.trustBadge}>
+                        <Ionicons name="shield-checkmark" size={13} color="#15803d" />
+                        <Text style={styles.trustBadgeText}>
+                          {rep.confirmaciones} {rep.confirmaciones === 1 ? 'confirmación' : 'confirmaciones'}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => void handleConfirmarReporte(rep.id_reporte)}
+                        disabled={rep.usuario_confirmo}
+                        style={[
+                          styles.confirmButton,
+                          rep.usuario_confirmo && styles.confirmButtonDisabled,
+                        ]}
+                      >
+                        <Ionicons
+                          name={rep.usuario_confirmo ? 'checkmark-circle' : 'thumbs-up-outline'}
+                          size={14}
+                          color={rep.usuario_confirmo ? '#15803d' : '#0369a1'}
+                        />
+                        <Text style={[
+                          styles.confirmButtonText,
+                          rep.usuario_confirmo && styles.confirmButtonTextDisabled,
+                        ]}>
+                          {rep.usuario_confirmo ? 'Confirmado por ti' : 'Confirmar precio'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1191,12 +1467,8 @@ export default function ProductosScreen() {
                 ]}
               >
                 {/* Imagen del producto o Icono temático */}
-                <Pressable
-                  onPress={() => setExpandedProductId(expanded ? null : item.id_producto)}
+                <View
                   style={[styles.productImageWrapper, { backgroundColor: iconInfo.bg }]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${expanded ? 'Ocultar' : 'Mostrar'} toda la información de ${item.nombre}`}
-                  accessibilityState={{ expanded }}
                 >
                   <ProductImage
                     productName={item.nombre}
@@ -1212,7 +1484,7 @@ export default function ProductosScreen() {
                     />
                     }
                   />
-                </Pressable>
+                </View>
 
                 <View style={styles.productInfo}>
                   <Pressable
@@ -1257,7 +1529,7 @@ export default function ProductosScreen() {
                     </Text>
                   ) : null}
 
-                  {/* Precio del producto */}
+                  {/* Precio del producto y lectura en voz alta accesible */}
                   <View style={styles.priceContainer}>
                     <Text style={styles.priceLabel}>Precio:</Text>
                     {demoDiscount ? (
@@ -1271,7 +1543,25 @@ export default function ProductosScreen() {
                     ) : (
                       <Text style={styles.pricePending}>Por consultar</Text>
                     )}
+                    <BotonLecturaVoz
+                      texto={`${item.nombre}. ${item.marca ? 'Marca ' + item.marca + '.' : ''} Unidad: ${item.unidad_medida}. ${
+                        item.precio ? 'Precio: ' + item.precio + ' pesos.' : 'Precio por consultar.'
+                      } ${com ? 'Disponible en ' + com.nombre : ''}`}
+                      size="pequeno"
+                      etiqueta=""
+                    />
                   </View>
+
+                  {/* Botón colaborativo de reporte y consulta de precios de barrio (Nonaka & Takeuchi) */}
+                  <Pressable
+                    onPress={() => void abrirModalReportePrecio(item)}
+                    style={styles.collabPriceButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Reportar o ver precios de la comunidad para ${item.nombre}`}
+                  >
+                    <Ionicons name="people-outline" size={14} color="#0369a1" />
+                    <Text style={styles.collabPriceButtonText}>Precios colaborativos de la comunidad</Text>
+                  </Pressable>
 
                   <View style={styles.ratingRow}>
                     <View style={styles.ratingStars}>
@@ -1475,6 +1765,23 @@ export default function ProductosScreen() {
                 accessibilityLabel="Marca del producto, opcional"
               />
 
+              <Text style={styles.fieldLabel}>Código de barras (opcional)</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TextInput
+                  style={[styles.modalInput, { flex: 1, marginBottom: 0 }]}
+                  placeholder="Escanea o escribe el código"
+                  value={codigoBarras}
+                  onChangeText={setCodigoBarras}
+                  keyboardType="numeric"
+                  maxLength={32}
+                  accessibilityLabel="Código de barras del producto"
+                />
+                <Pressable onPress={() => void abrirEscanerCodigo()} style={styles.scanBarcodeButton} accessibilityRole="button" accessibilityLabel="Leer código de barras con la cámara">
+                  <Ionicons name="barcode-outline" size={20} color="#166534" />
+                  <Text style={styles.scanBarcodeText}>Leer</Text>
+                </Pressable>
+              </View>
+
               <Text style={styles.fieldLabel}>Precio en Pesos Colombianos ($ COP) *</Text>
               <TextInput
                 style={styles.modalInput}
@@ -1667,6 +1974,27 @@ export default function ProductosScreen() {
           </View>
         </View>
       </Modal>
+      <Modal visible={barcodeScannerVisible} animationType="slide" onRequestClose={() => setBarcodeScannerVisible(false)}>
+        <View style={styles.barcodeScannerScreen}>
+          <View style={styles.barcodeScannerHeader}>
+            <Text style={styles.barcodeScannerTitle}>Escanea el empaque</Text>
+            <Pressable onPress={() => setBarcodeScannerVisible(false)} accessibilityRole="button" accessibilityLabel="Cerrar escáner de código">
+              <Ionicons name="close" size={25} color="#ffffff" />
+            </Pressable>
+          </View>
+          <CameraView
+            style={styles.barcodeCamera}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }}
+            onBarcodeScanned={barcodeScanLocked ? undefined : ({ data }) => {
+              setBarcodeScanLocked(true);
+              setCodigoBarras(data);
+              setBarcodeScannerVisible(false);
+            }}
+          />
+          <Text style={styles.barcodeScannerHint}>Centra el código de barras. Al leerlo, se guardará en el producto.</Text>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1681,6 +2009,13 @@ function ProductDetailRow({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
+  scanBarcodeButton: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 11, borderRadius: 12, backgroundColor: '#eaf5e9' },
+  scanBarcodeText: { color: '#166534', fontSize: 11, fontWeight: '800' },
+  barcodeScannerScreen: { flex: 1, backgroundColor: '#0b1610' },
+  barcodeScannerHeader: { minHeight: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18 },
+  barcodeScannerTitle: { color: '#ffffff', fontSize: 17, fontWeight: '800' },
+  barcodeCamera: { flex: 1 },
+  barcodeScannerHint: { color: '#e2e8f0', fontSize: 12, lineHeight: 18, textAlign: 'center', padding: 18 },
   container: {
     flex: 1,
     backgroundColor: '#f7f8f6',
@@ -2043,6 +2378,133 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     color: '#94a3b8',
+  },
+  collabPriceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    alignSelf: 'flex-start',
+  },
+  collabPriceButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0369a1',
+  },
+  reportFormCard: {
+    backgroundColor: '#f8fafc',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 8,
+  },
+  reportFormTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  reportFormHint: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 16,
+  },
+  emptyReportBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    gap: 6,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+  },
+  emptyReportText: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  reportItemCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 6,
+  },
+  reportItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  reportItemStore: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  reportItemDate: {
+    fontSize: 10,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  reportItemPrice: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#15803d',
+  },
+  reportItemComment: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: '#475569',
+  },
+  reportItemFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  trustBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  trustBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#15803d',
+  },
+  confirmButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#e0f2fe',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  confirmButtonDisabled: {
+    backgroundColor: '#f1f5f9',
+  },
+  confirmButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0369a1',
+  },
+  confirmButtonTextDisabled: {
+    color: '#15803d',
   },
   ratingRow: {
     flexDirection: 'row',

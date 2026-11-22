@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Link, router, useFocusEffect } from 'expo-router';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Link, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 import {
   agregarProductoALista,
@@ -23,14 +24,18 @@ import {
 } from '@/repositories/compraRepository';
 import type { PagoPendiente } from '@/repositories/compraRepository';
 import { obtenerProductos } from '@/repositories/productoRepository';
-import { ListaCompra, Producto } from '@/types/database';
+import { obtenerPresupuestos } from '@/repositories/presupuestoRepository';
+import { ListaCompra, Producto, Presupuesto } from '@/types/database';
 import { displayPrice, getDemoDiscount } from '@/utils/demo-prices';
 import { ProductImage } from '@/components/product-image';
+import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
 
 const currency = (amount: number) => `$${Number(amount || 0).toLocaleString('es-CO')}`;
 
 export default function ListaCompraScreen() {
   const { user } = useAuth();
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const appliedRouteId = useRef<string | undefined>(undefined);
   const [lists, setLists] = useState<ListaCompra[]>([]);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
   const [items, setItems] = useState<ItemListaCompra[]>([]);
@@ -45,6 +50,11 @@ export default function ListaCompraScreen() {
   const [paymentError, setPaymentError] = useState('');
   const [pendingPayments, setPendingPayments] = useState<PagoPendiente[]>([]);
   const [selectedPayment, setSelectedPayment] = useState<PagoPendiente | null>(null);
+  const [presupuestoActivo, setPresupuestoActivo] = useState<Presupuesto | null>(null);
+  const [cameraVisible, setCameraVisible] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [barcodeResult, setBarcodeResult] = useState('');
+  const [barcodeLock, setBarcodeLock] = useState(false);
 
   const loadLists = useCallback(async () => {
     if (!user) {
@@ -52,21 +62,33 @@ export default function ListaCompraScreen() {
       setItems([]);
       setSelectedListId(null);
       setPendingPayments([]);
+      setPresupuestoActivo(null);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError('');
     try {
-      const [userLists, catalog, userPendingPayments] = await Promise.all([
+      const [userLists, catalog, userPendingPayments, userBudgets] = await Promise.all([
         obtenerListasCompra(user.id_usuario),
         obtenerProductos(),
         obtenerPagosPendientes(user.id_usuario),
+        obtenerPresupuestos(user.id_usuario),
       ]);
       setLists(userLists);
       setProducts(catalog.filter((product) => product.pro_estado === 1));
       setPendingPayments(userPendingPayments);
-      const nextId = userLists.some((list) => list.id_lista === selectedListId)
+      const activeBudget = userBudgets.find((b) => b.pre_estado === 1) || userBudgets[0] || null;
+      setPresupuestoActivo(activeBudget);
+      const routeId = typeof id === 'string' ? id : undefined;
+      const requestedId = routeId !== appliedRouteId.current && routeId
+        ? Number(routeId)
+        : Number.NaN;
+      if (routeId !== appliedRouteId.current) appliedRouteId.current = routeId;
+      const nextId = Number.isInteger(requestedId) &&
+        userLists.some((list) => list.id_lista === requestedId)
+        ? requestedId
+        : userLists.some((list) => list.id_lista === selectedListId)
         ? selectedListId
         : userLists[0]?.id_lista ?? null;
       setSelectedListId(nextId);
@@ -78,7 +100,7 @@ export default function ListaCompraScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user, selectedListId]);
+  }, [id, user, selectedListId]);
 
   useFocusEffect(useCallback(() => { void loadLists(); }, [loadLists]));
 
@@ -173,6 +195,27 @@ export default function ListaCompraScreen() {
 
   const getSelectedListName = () => lists.find((list) => list.id_lista === selectedListId)?.nombre;
 
+  const shareList = async () => {
+    const name = getSelectedListName() || 'Mi lista de compra';
+    const lines = items.map((item) => `• ${item.nombre} x${item.cantidad}${item.precio ? ` — ${currency(Number(item.precio) * Number(item.cantidad))}` : ''}`);
+    const message = `🛒 ${name}\n${lines.join('\n') || 'Aún no hay productos en la lista.'}\n\nEstimado: ${currency(total)}`;
+    try {
+      await Share.share({ message, title: name });
+    } catch {
+      setError('No se pudo compartir la lista.');
+    }
+  };
+
+  const openScanner = async () => {
+    if (!cameraPermission?.granted) {
+      const permission = await requestCameraPermission();
+      if (!permission.granted) { setError('Permite el acceso a la cámara para escanear códigos de barras.'); return; }
+    }
+    setBarcodeResult('');
+    setBarcodeLock(false);
+    setCameraVisible(true);
+  };
+
   const payWithWallet = async () => {
     if (!user || selectedListId === null || saving) return;
     setSaving(true);
@@ -263,7 +306,7 @@ export default function ListaCompraScreen() {
     const alreadyInList = new Set(items.map((item) => item.id_producto));
     return products
       .filter((product) => !alreadyInList.has(product.id_producto))
-      .filter((product) => !query || `${product.nombre} ${product.marca || ''}`.toLocaleLowerCase().includes(query))
+      .filter((product) => !query || `${product.nombre} ${product.marca || ''} ${product.codigo_barras || ''}`.toLocaleLowerCase().includes(query))
       .slice(0, 30);
   }, [products, items, search]);
 
@@ -286,6 +329,9 @@ export default function ListaCompraScreen() {
           <Text style={styles.headingTitle} accessibilityRole="header">Lista de compra</Text>
           <Text style={styles.mutedText}>Tus listas guardadas en tu cuenta</Text>
         </View>
+        <Pressable onPress={() => void shareList()} style={styles.historyButton} accessibilityRole="button" accessibilityLabel="Compartir lista de compra" accessibilityHint="Abre las opciones del teléfono para compartir tu lista">
+          <Ionicons name="share-social-outline" size={17} color="#166534" />
+        </Pressable>
         <Pressable
           onPress={() => router.push('/historial-compras')}
           style={styles.historyButton}
@@ -428,6 +474,73 @@ export default function ListaCompraScreen() {
               <View style={[styles.progressFill, { width: `${items.length ? checkedCount / items.length * 100 : 0}%` }]} />
             </View>
 
+            {/* Presupuesto en vivo con semáforo preventivo (Contabilidad Mental de Thaler) */}
+            {presupuestoActivo && (
+              <View style={[
+                styles.liveBudgetCard,
+                total > presupuestoActivo.monto
+                  ? styles.budgetOverlimit
+                  : total >= presupuestoActivo.monto * 0.8
+                  ? styles.budgetWarning
+                  : styles.budgetOk,
+              ]}>
+                <View style={styles.liveBudgetHeader}>
+                  <View style={styles.liveBudgetInfo}>
+                    <View style={styles.semaforoRow}>
+                      <View style={[
+                        styles.semaforoDot,
+                        {
+                          backgroundColor:
+                            total > presupuestoActivo.monto
+                              ? '#ef4444'
+                              : total >= presupuestoActivo.monto * 0.8
+                              ? '#f59e0b'
+                              : '#10b981',
+                        },
+                      ]} />
+                      <Text style={styles.liveBudgetTitle}>
+                        Presupuesto: {presupuestoActivo.nombre}
+                      </Text>
+                    </View>
+                    <Text style={styles.liveBudgetValues}>
+                      Límite: {currency(presupuestoActivo.monto)} · Estimado: {currency(total)}
+                    </Text>
+                  </View>
+                  <BotonLecturaVoz
+                    texto={`Tu lista suma un total estimado de ${total} pesos. Tu presupuesto asignado es de ${presupuestoActivo.monto} pesos. ${
+                      total > presupuestoActivo.monto
+                        ? 'Alerta: Te has pasado del dinero que tenías planeado.'
+                        : total >= presupuestoActivo.monto * 0.8
+                        ? 'Atención: Has alcanzado el 80% de tu presupuesto.'
+                        : 'Estás dentro de tu presupuesto sin problemas.'
+                    }`}
+                    etiqueta="Voz"
+                    size="pequeno"
+                  />
+                </View>
+
+                {total > presupuestoActivo.monto ? (
+                  <View style={styles.alertBannerDanger}>
+                    <Ionicons name="warning" size={16} color="#b91c1c" />
+                    <Text style={styles.alertBannerDangerText}>
+                      ¡Te pasaste por {currency(total - presupuestoActivo.monto)}! Considera ajustar cantidades.
+                    </Text>
+                  </View>
+                ) : total >= presupuestoActivo.monto * 0.8 ? (
+                  <View style={styles.alertBannerWarning}>
+                    <Ionicons name="alert-circle" size={16} color="#b45309" />
+                    <Text style={styles.alertBannerWarningText}>
+                      Ya usaste el {Math.round((total / presupuestoActivo.monto) * 100)}% de tu monto planeado.
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.alertBannerOkText}>
+                    Te quedan {currency(presupuestoActivo.monto - total)} disponibles para esta compra.
+                  </Text>
+                )}
+              </View>
+            )}
+
             {items.length === 0 ? (
               <View style={styles.emptyList}><Ionicons name="basket-outline" size={25} color="#94a3b8" /><Text style={styles.mutedText}>Esta lista está vacía. Busca productos abajo para agregarlos.</Text></View>
             ) : items.map((item) => (
@@ -493,9 +606,12 @@ export default function ListaCompraScreen() {
           </View>
 
           <View style={styles.catalogHeader}>
-            <View><Text style={styles.sectionTitle} accessibilityRole="header">Agregar productos</Text><Text style={styles.catalogSubtitle}>Elige artículos del catálogo para esta lista</Text></View>
+            <View style={{ flex: 1 }}><Text style={styles.sectionTitle} accessibilityRole="header">Agregar productos</Text><Text style={styles.catalogSubtitle}>Elige artículos del catálogo para esta lista</Text></View>
+            <Pressable onPress={() => void openScanner()} style={styles.scanButton} accessibilityRole="button" accessibilityLabel="Escanear código de barras de un producto">
+              <Ionicons name="barcode-outline" size={19} color="#166534" /><Text style={styles.scanButtonText}>Escanear</Text>
+            </Pressable>
           </View>
-          <View style={styles.searchBox}><Ionicons name="search-outline" size={18} color="#64748b" /><TextInput value={search} onChangeText={setSearch} placeholder="Buscar producto o marca" placeholderTextColor="#94a3b8" style={styles.searchInput} accessibilityLabel="Buscar productos para agregar" accessibilityHint="Filtra el catálogo por nombre o marca" /></View>
+          <View style={styles.searchBox}><Ionicons name="search-outline" size={18} color="#64748b" /><TextInput value={search} onChangeText={setSearch} placeholder="Buscar nombre, marca o código" placeholderTextColor="#94a3b8" style={styles.searchInput} accessibilityLabel="Buscar productos para agregar" accessibilityHint="Filtra el catálogo por nombre, marca o código de barras" /></View>
           {filteredProducts.length === 0 ? (
             <View style={styles.emptyProducts}><Text style={styles.mutedText}>{search ? 'No hay coincidencias en el catálogo.' : 'Ya agregaste todos los productos disponibles.'}</Text></View>
           ) : filteredProducts.map((product) => <ProductRow key={product.id_producto} product={product} onAdd={() => void addProduct(product.id_producto)} disabled={saving} />)}
@@ -517,6 +633,25 @@ export default function ListaCompraScreen() {
           router.push('/presupuesto');
         }}
       />
+      <Modal visible={cameraVisible} animationType="slide" onRequestClose={() => setCameraVisible(false)}>
+        <View style={styles.cameraScreen}>
+          <View style={styles.cameraHeader}><Text style={styles.cameraTitle}>Escanear producto</Text><Pressable onPress={() => setCameraVisible(false)} accessibilityRole="button" accessibilityLabel="Cerrar escáner"><Ionicons name="close" size={24} color="#ffffff" /></Pressable></View>
+          <CameraView
+            style={styles.cameraPreview}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'qr'] }}
+            onBarcodeScanned={barcodeLock ? undefined : ({ data }) => {
+              setBarcodeLock(true);
+              setBarcodeResult(data);
+              setSearch(data);
+            }}
+          />
+          <View style={styles.cameraFooter}>
+            <Text style={styles.cameraHelp}>{barcodeResult ? `Código ${barcodeResult}. Busca coincidencias en el catálogo.` : 'Centra el código de barras dentro del marco.'}</Text>
+            {barcodeResult ? <Pressable style={styles.cameraAction} onPress={() => setCameraVisible(false)}><Text style={styles.cameraActionText}>Ver coincidencias</Text></Pressable> : null}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -649,6 +784,16 @@ const styles = StyleSheet.create({
   headerCopy: { flex: 1 },
   historyButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 9, borderRadius: 11, backgroundColor: '#dcfce7' },
   historyButtonText: { color: '#166534', fontSize: 11, fontWeight: '700' },
+  scanButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, borderRadius: 12, backgroundColor: '#eaf5e9' },
+  scanButtonText: { color: '#166534', fontSize: 10, fontWeight: '800' },
+  cameraScreen: { flex: 1, backgroundColor: '#0b1610' },
+  cameraHeader: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18 },
+  cameraTitle: { color: '#ffffff', fontSize: 17, fontWeight: '800' },
+  cameraPreview: { flex: 1 },
+  cameraFooter: { minHeight: 120, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20 },
+  cameraHelp: { color: '#e2e8f0', fontSize: 13, textAlign: 'center' },
+  cameraAction: { minHeight: 42, justifyContent: 'center', paddingHorizontal: 18, borderRadius: 13, backgroundColor: '#168344' },
+  cameraActionText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
   headingTitle: { color: '#14532d', fontSize: 23, fontWeight: '800' },
   mutedText: { color: '#64748b', fontSize: 12, lineHeight: 18 },
   createCard: { padding: 16, backgroundColor: '#ffffff', borderRadius: 20, borderWidth: 1, borderColor: '#e7ece7', gap: 10 },
@@ -692,6 +837,87 @@ const styles = StyleSheet.create({
   bulkClearText: { color: '#475569', fontSize: 11, fontWeight: '700' },
   progressTrack: { height: 5, borderRadius: 3, backgroundColor: '#f1f5f9', overflow: 'hidden', marginTop: 14, marginBottom: 7 },
   progressFill: { height: '100%', backgroundColor: '#22c55e', borderRadius: 3 },
+  liveBudgetCard: {
+    marginTop: 10,
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    gap: 8,
+  },
+  budgetOk: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#86efac',
+  },
+  budgetWarning: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  },
+  budgetOverlimit: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fca5a5',
+  },
+  liveBudgetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  liveBudgetInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  semaforoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  semaforoDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  liveBudgetTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  liveBudgetValues: {
+    fontSize: 11,
+    color: '#475569',
+  },
+  alertBannerDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#fee2e2',
+  },
+  alertBannerDangerText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#991b1b',
+  },
+  alertBannerWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#fef3c7',
+  },
+  alertBannerWarningText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#92400e',
+  },
+  alertBannerOkText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#15803d',
+  },
   emptyList: { minHeight: 100, alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 14 },
   itemRow: { minHeight: 63, flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
   checkbox: { width: 21, height: 21, borderRadius: 7, borderWidth: 1.5, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },

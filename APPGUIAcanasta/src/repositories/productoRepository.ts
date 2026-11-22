@@ -13,7 +13,8 @@ export async function crearProducto(
   unidad_medida: string,
   marca?: string,
   descripcion?: string,
-  imagen_url?: string
+  imagen_url?: string,
+  codigo_barras?: string
 ): Promise<number> {
   const db = await getDatabase();
 
@@ -26,10 +27,11 @@ export async function crearProducto(
       nombre,
       unidad_medida,
       marca,
+      codigo_barras,
       descripcion,
       imagen_url
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       id_categoria,
@@ -37,6 +39,7 @@ export async function crearProducto(
       nombre,
       unidad_medida,
       marca ?? null,
+      codigo_barras?.trim() || null,
       descripcion ?? null,
       imagen_url ?? null
     ]
@@ -136,7 +139,8 @@ export async function actualizarProducto(
   unidad_medida: string,
   marca?: string,
   descripcion?: string,
-  imagen_url?: string
+  imagen_url?: string,
+  codigo_barras?: string
 ): Promise<void> {
   const db = await getDatabase();
 
@@ -149,6 +153,7 @@ export async function actualizarProducto(
       nombre = ?,
       unidad_medida = ?,
       marca = ?,
+      codigo_barras = ?,
       descripcion = ?,
       imagen_url = ?
     WHERE id_producto = ?
@@ -159,6 +164,7 @@ export async function actualizarProducto(
       nombre,
       unidad_medida,
       marca ?? null,
+      codigo_barras?.trim() || null,
       descripcion ?? null,
       imagen_url ?? null,
       id_producto

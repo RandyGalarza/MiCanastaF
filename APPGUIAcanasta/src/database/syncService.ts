@@ -1,10 +1,11 @@
 import { getDatabase } from './database';
 import { supabase } from './supabaseClient';
+import { procesarColaSincronizacion } from './syncQueue';
 
 /**
  * Tablas sincronizables con su llave primaria y columnas válidas permitidas
  */
-const SYNC_TABLES: { name: string; pk: string; allowedColumns: string[] }[] = [
+const SYNC_TABLES: { name: string; pk: string; conflict?: string; allowedColumns: string[] }[] = [
   {
     name: 'categorias',
     pk: 'id_categoria',
@@ -13,7 +14,7 @@ const SYNC_TABLES: { name: string; pk: string; allowedColumns: string[] }[] = [
   {
     name: 'comercios',
     pk: 'id_comercio',
-    allowedColumns: ['id_comercio', 'nombre', 'direccion', 'telefono', 'tipo_comercio', 'com_estado'],
+    allowedColumns: ['id_comercio', 'nombre', 'direccion', 'telefono', 'tipo_comercio', 'latitud', 'longitud', 'com_estado'],
   },
   {
     name: 'usuarios',
@@ -46,6 +47,7 @@ const SYNC_TABLES: { name: string; pk: string; allowedColumns: string[] }[] = [
       'descripcion',
       'unidad_medida',
       'marca',
+      'codigo_barras',
       'imagen_url',
       'pro_estado',
     ],
@@ -59,6 +61,17 @@ const SYNC_TABLES: { name: string; pk: string; allowedColumns: string[] }[] = [
     name: 'precios',
     pk: 'id_precio',
     allowedColumns: ['id_precio', 'id_producto', 'id_comercio', 'precio', 'disponible', 'fecha_registro'],
+  },
+  {
+    name: 'reportes_precio',
+    pk: 'id_reporte',
+    allowedColumns: ['id_reporte', 'id_producto', 'id_comercio', 'id_usuario', 'precio_reportado', 'comentario', 'fecha_reporte', 'confirmaciones', 'estado'],
+  },
+  {
+    name: 'confirmaciones_reporte',
+    pk: 'id_confirmacion',
+    conflict: 'id_reporte,id_usuario',
+    allowedColumns: ['id_reporte', 'id_usuario', 'fecha'],
   },
   {
     name: 'listas_compra',
@@ -148,7 +161,7 @@ function sanitizeRow(row: Record<string, any>, allowed: string[]): Record<string
 }
 
 function logSyncError(direction: 'Pull' | 'Push' | 'Realtime', table: string, message: string) {
-  const needsUpdatedSchema = table === 'compras' || table === 'calificaciones_productos';
+  const needsUpdatedSchema = ['compras', 'calificaciones_productos', 'reportes_precio', 'confirmaciones_reporte'].includes(table);
   const setupHint = needsUpdatedSchema && /PGRST205|schema cache|could not find the table/i.test(message)
     ? ' Ejecuta el bloque actualizado de supabase_schema.sql en el SQL Editor de Supabase.'
     : '';
@@ -162,7 +175,7 @@ export async function pullFromSupabase(): Promise<boolean> {
   const db = await getDatabase();
   let successful = true;
 
-  for (const { name, pk, allowedColumns } of SYNC_TABLES) {
+  for (const { name, pk, conflict, allowedColumns } of SYNC_TABLES) {
     try {
       const { data, error } = await supabase.from(name).select('*');
       if (error) {
@@ -177,9 +190,12 @@ export async function pullFromSupabase(): Promise<boolean> {
           if (name === 'usuarios' && row.contrasena === undefined) {
             row.contrasena = '';
           }
+          const conflictColumns = conflict?.split(',') ?? [pk];
+          const whereClause = conflictColumns.map((column) => `${column} = ?`).join(' AND ');
+          const conflictValues = conflictColumns.map((column) => row[column]);
           const existing = await db.getFirstAsync<any>(
-            `SELECT * FROM ${name} WHERE ${pk} = ?`,
-            [row[pk]]
+            `SELECT * FROM ${name} WHERE ${whereClause}`,
+            conflictValues
           );
 
           const keys = Object.keys(row);
@@ -195,9 +211,9 @@ export async function pullFromSupabase(): Promise<boolean> {
           } else {
             // UPDATE local
             const setClause = keys.map((k) => `${k} = ?`).join(', ');
-            const values = [...keys.map((k) => row[k]), row[pk]];
+            const values = [...keys.map((k) => row[k]), ...conflictValues];
             await db.runAsync(
-              `UPDATE ${name} SET ${setClause} WHERE ${pk} = ?`,
+              `UPDATE ${name} SET ${setClause} WHERE ${whereClause}`,
               values
             );
           }
@@ -218,14 +234,14 @@ export async function pushToSupabase(): Promise<boolean> {
   const db = await getDatabase();
   let successful = true;
 
-  for (const { name, pk, allowedColumns } of SYNC_TABLES) {
+  for (const { name, pk, conflict, allowedColumns } of SYNC_TABLES) {
     try {
       const localRows = await db.getAllAsync<any>(`SELECT * FROM ${name}`);
       if (localRows && localRows.length > 0) {
         const cleanRows = localRows.map((r) => sanitizeRow(r, allowedColumns));
         const { error } = await supabase
           .from(name)
-          .upsert(cleanRows, { onConflict: pk });
+          .upsert(cleanRows, { onConflict: conflict ?? pk });
 
         if (error) {
           logSyncError('Push', name, error.message);
@@ -245,6 +261,9 @@ export async function pushToSupabase(): Promise<boolean> {
  */
 export async function syncDatabase(): Promise<boolean> {
   try {
+    // 0. Procesar cola offline pendiente primero
+    await procesarColaSincronizacion();
+
     // 1. Descargamos lo más reciente de Supabase a la base local
     const pulled = await pullFromSupabase();
     // 2. Subimos cambios locales limpios a Supabase
@@ -275,7 +294,7 @@ export async function syncRecordToSupabase(
 
     const { error } = await supabase
       .from(tableName)
-      .upsert(clean, { onConflict: pkName });
+      .upsert(clean, { onConflict: tableConfig?.conflict ?? pkName });
 
     if (error) {
       logSyncError('Realtime', tableName, error.message);

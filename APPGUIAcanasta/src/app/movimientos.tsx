@@ -6,12 +6,14 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useAuth } from '@/contexts/auth-context';
+import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
 import {
   crearMovimientoHogar,
   eliminarMovimientoHogar,
@@ -20,7 +22,7 @@ import {
 import { MovimientoHogar, TipoMovimientoHogar } from '@/types/database';
 
 const CATEGORIAS: Record<TipoMovimientoHogar, string[]> = {
-  ingreso: ['Salario', 'Ventas', 'Apoyo familiar', 'Otros ingresos'],
+  ingreso: ['Salario', 'Trabajo diario', 'Trabajo semanal', 'Ventas', 'Apoyo familiar', 'Otros ingresos'],
   gasto: ['Servicios', 'Vivienda', 'Transporte', 'Salud', 'Educación', 'Otros gastos'],
 };
 
@@ -77,6 +79,12 @@ export default function MovimientosScreen() {
   const ingresos = movimientosDelMes
     .filter((item) => item.tipo === 'ingreso')
     .reduce((sum, item) => sum + Number(item.monto), 0);
+  const ingresosVariables = movimientosDelMes
+    .filter((item) => item.tipo === 'ingreso' && ['Trabajo diario', 'Trabajo semanal', 'Ventas'].includes(item.categoria))
+    .reduce((sum, item) => sum + Number(item.monto), 0);
+  const diasTranscurridos = Math.max(1, Number(localDate().slice(-2)));
+  const diasDelMes = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const proyeccionIngresos = Math.round((ingresosVariables / diasTranscurridos) * diasDelMes);
   const gastos = movimientosDelMes
     .filter((item) => item.tipo === 'gasto')
     .reduce((sum, item) => sum + Number(item.monto), 0);
@@ -130,6 +138,36 @@ export default function MovimientosScreen() {
     }
   };
 
+  const compartirResumenSemanal = async () => {
+    const hoy = new Date();
+    const inicio = new Date(hoy);
+    inicio.setDate(hoy.getDate() - 6);
+    const fechaInicio = localDate(inicio);
+    const fechaFin = localDate(hoy);
+    const movimientosSemana = movimientos.filter((item) => item.fecha >= fechaInicio && item.fecha <= fechaFin);
+    const ingresosSemana = movimientosSemana
+      .filter((item) => item.tipo === 'ingreso')
+      .reduce((sum, item) => sum + Number(item.monto), 0);
+    const gastosSemana = movimientosSemana
+      .filter((item) => item.tipo === 'gasto')
+      .reduce((sum, item) => sum + Number(item.monto), 0);
+    const mensaje = [
+      '📊 Resumen semanal de Mi Canasta',
+      `${fechaInicio} al ${fechaFin}`,
+      `Ingresos: ${currency(ingresosSemana)}`,
+      `Gastos: ${currency(gastosSemana)}`,
+      `Balance: ${currency(ingresosSemana - gastosSemana)}`,
+      `${movimientosSemana.length} movimientos registrados`,
+    ].join('\n');
+
+    try {
+      await Share.share({ title: 'Resumen semanal de Mi Canasta', message: mensaje });
+    } catch (shareError) {
+      console.error('No se pudo compartir el resumen semanal:', shareError);
+      setError('No se pudo compartir el resumen semanal.');
+    }
+  };
+
   if (!user) {
     return (
       <View style={styles.centered}>
@@ -150,7 +188,7 @@ export default function MovimientosScreen() {
           </Link>
           <View style={styles.headerCopy}>
             <Text style={styles.title} accessibilityRole="header">Ingresos y gastos</Text>
-            <Text style={styles.muted}>Organiza los movimientos de tu hogar</Text>
+            <Text style={styles.muted}>Registra ingresos diarios o semanales y proyecta el mes</Text>
           </View>
         </View>
 
@@ -163,6 +201,28 @@ export default function MovimientosScreen() {
           <Text style={styles.balanceAmount}>{currency(ingresos - gastos)}</Text>
           <Text style={styles.balanceHint}>Ingresos registrados menos gastos registrados</Text>
         </View>
+        <Link
+          href="/hogar-compartido"
+          style={styles.sharedHouseholdLink}
+          accessibilityRole="link"
+          accessibilityLabel="Configurar ingresos y gastos compartidos con mi hogar"
+        >
+          <Ionicons name="people-outline" size={18} color="#166534" />
+          <Text style={styles.sharedHouseholdLinkText}>Compartir movimientos con mi hogar</Text>
+          <Ionicons name="chevron-forward" size={16} color="#64748b" />
+        </Link>
+        <View style={styles.projectionCard}>
+          <View style={styles.projectionIcon}><Ionicons name="trending-up-outline" size={18} color="#166534" /></View>
+          <View style={styles.projectionCopy}>
+            <Text style={styles.projectionTitle}>Proyección de ingresos variables</Text>
+            <Text style={styles.projectionHint}>Estimación según el ritmo registrado este mes</Text>
+          </View>
+          <Text style={styles.projectionAmount}>{currency(proyeccionIngresos)}</Text>
+        </View>
+        <Pressable onPress={() => void compartirResumenSemanal()} style={styles.shareButton} accessibilityRole="button" accessibilityLabel="Compartir resumen de ingresos y gastos de los últimos siete días" accessibilityHint="Abre las aplicaciones disponibles, como WhatsApp, para compartir el resumen">
+          <Ionicons name="share-social-outline" size={18} color="#166534" />
+          <Text style={styles.shareButtonText}>Compartir resumen de los últimos 7 días</Text>
+        </Pressable>
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle} accessibilityRole="header">Registrar movimiento</Text>
@@ -175,7 +235,7 @@ export default function MovimientosScreen() {
           <TextInput
             value={concepto}
             onChangeText={setConcepto}
-            placeholder={tipo === 'gasto' ? 'Ej. Recibo de energía' : 'Ej. Pago quincenal'}
+            placeholder={tipo === 'gasto' ? 'Ej. Recibo de energía' : 'Ej. Jornada de trabajo de hoy'}
             placeholderTextColor="#94a3b8"
             style={styles.input}
             maxLength={80}
@@ -196,6 +256,22 @@ export default function MovimientosScreen() {
             accessibilityLabel="Monto en pesos colombianos"
             accessibilityHint="Ingresa un monto entero mayor que cero"
           />
+          {Number.isSafeInteger(parseAmount(montoTexto)) && parseAmount(montoTexto) > 0 ? (
+            <View style={styles.amountConfirmation}>
+              <Text
+                style={styles.amountConfirmationText}
+                accessibilityRole="text"
+                accessibilityLabel={`Monto ingresado: ${currency(parseAmount(montoTexto))} pesos colombianos`}
+              >
+                Se registrará: {currency(parseAmount(montoTexto))} pesos
+              </Text>
+              <BotonLecturaVoz
+                texto={`${currency(parseAmount(montoTexto))} pesos colombianos`}
+                etiqueta="Escuchar monto"
+                size="pequeno"
+              />
+            </View>
+          ) : null}
 
           <Text style={styles.fieldLabel}>Categoría</Text>
           <View style={styles.categoryRow}>
@@ -323,6 +399,8 @@ function TypeButton({ selected, label, icon, color, onPress }: { selected: boole
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={selected ? `${label} seleccionado` : `Selecciona ${label.toLocaleLowerCase('es-CO')}`}
       accessibilityState={{ selected }}
       style={[styles.typeButton, selected && { borderColor: color, backgroundColor: `${color}0d` }]}
     >
@@ -338,7 +416,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 12, backgroundColor: '#f7f8f6' },
   heroIcon: { width: 58, height: 58, borderRadius: 20, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 3 },
-  backButton: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#e8f4e9' },
+  backButton: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#e8f4e9' },
   headerCopy: { flex: 1 },
   title: { color: '#14532d', fontSize: 21, fontWeight: '800' },
   muted: { color: '#64748b', fontSize: 13, lineHeight: 19 },
@@ -350,20 +428,32 @@ const styles = StyleSheet.create({
   balanceLabel: { color: '#bbf7d0', fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
   balanceAmount: { color: '#ffffff', fontSize: 25, fontWeight: '800' },
   balanceHint: { color: '#dcfce7', fontSize: 12 },
+  sharedHouseholdLink: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#eaf6eb' },
+  sharedHouseholdLinkText: { flex: 1, color: '#166534', fontSize: 12, fontWeight: '800' },
+  projectionCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 13, borderRadius: 16, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcebdc' },
+  projectionIcon: { width: 35, height: 35, borderRadius: 12, backgroundColor: '#eaf5e9', alignItems: 'center', justifyContent: 'center' },
+  projectionCopy: { flex: 1, gap: 3 },
+  projectionTitle: { color: '#14532d', fontSize: 11, fontWeight: '800' },
+  projectionHint: { color: '#718076', fontSize: 9 },
+  projectionAmount: { color: '#168344', fontSize: 12, fontWeight: '800' },
+  shareButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#eaf5e9', borderWidth: 1, borderColor: '#dcebdc' },
+  shareButtonText: { color: '#166534', fontSize: 12, fontWeight: '800' },
   card: { backgroundColor: '#ffffff', borderRadius: 20, padding: 17, borderWidth: 1, borderColor: '#e7ece7', gap: 10 },
   sectionTitle: { color: '#1e293b', fontSize: 16, fontWeight: '800' },
   typeRow: { flexDirection: 'row', gap: 10 },
-  typeButton: { flex: 1, minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 13, backgroundColor: '#ffffff' },
+  typeButton: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 13, backgroundColor: '#ffffff' },
   typeButtonText: { fontSize: 13, fontWeight: '700' },
   fieldLabel: { color: '#334155', fontSize: 12, fontWeight: '700', marginTop: 2 },
-  input: { minHeight: 46, borderWidth: 1, borderColor: '#dbe4db', borderRadius: 12, paddingHorizontal: 13, color: '#1e293b', fontSize: 14, backgroundColor: '#ffffff' },
+  input: { minHeight: 48, borderWidth: 1, borderColor: '#dbe4db', borderRadius: 12, paddingHorizontal: 13, color: '#1e293b', fontSize: 14, backgroundColor: '#ffffff' },
+  amountConfirmation: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
+  amountConfirmationText: { color: '#14532d', fontSize: 13, fontWeight: '700' },
   categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  categoryChip: { borderWidth: 1, borderColor: '#dbe4db', borderRadius: 18, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: '#ffffff' },
+  categoryChip: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: '#dbe4db', borderRadius: 18, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: '#ffffff' },
   categoryChipSelected: { borderColor: '#168344', backgroundColor: '#eaf6eb' },
   categoryText: { color: '#64748b', fontSize: 11, fontWeight: '600' },
   categoryTextSelected: { color: '#166534' },
   errorText: { color: '#b91c1c', fontSize: 12, lineHeight: 18 },
-  saveButton: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 13, backgroundColor: '#168344', marginTop: 3 },
+  saveButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 13, backgroundColor: '#168344', marginTop: 3 },
   disabledButton: { opacity: 0.65 },
   saveButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
   listHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 },

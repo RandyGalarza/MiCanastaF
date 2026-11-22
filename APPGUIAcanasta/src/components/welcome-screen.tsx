@@ -1,380 +1,606 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useAuth } from '@/contexts/auth-context';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppLogo } from '@/components/app-logo';
+import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
+import { QuickExpenseModal } from '@/components/quick-expense-modal';
+import { useAuth } from '@/contexts/auth-context';
+import { BrandColors } from '@/constants/theme';
+import { obtenerCompras } from '@/repositories/compraRepository';
+import { obtenerMovimientosHogar } from '@/repositories/movimientoHogarRepository';
+import { obtenerPresupuestos } from '@/repositories/presupuestoRepository';
+import { Compra, MovimientoHogar, Presupuesto } from '@/types/database';
 
-const QUICK_TIPS = [
-  { icon: 'list-outline' as const, title: 'Planea antes de salir', text: 'Arma tu lista y ten lo necesario a la mano.' },
-  { icon: 'pricetag-outline' as const, title: 'Compara con calma', text: 'Revisa los precios disponibles en cada comercio.' },
-  { icon: 'wallet-outline' as const, title: 'Define un límite', text: 'Usa tu presupuesto como guía para comprar.' },
-];
+const currency = (amount: number) => `$${Number(amount || 0).toLocaleString('es-CO')}`;
+
+function localDate(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function purchaseDate(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : localDate(date);
+}
+
+function daysUntil(endDate: string, today: string): number {
+  const end = new Date(`${endDate}T12:00:00`);
+  const start = new Date(`${today}T12:00:00`);
+  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000) + 1);
+}
+
+function formatShortDate(value: string): string {
+  return new Date(`${value}T12:00:00`).toLocaleDateString('es-CO', {
+    day: 'numeric',
+    month: 'long',
+  });
+}
+
+type BudgetSnapshot = {
+  name: string;
+  amount: number;
+  spent: number;
+  daysRemaining: number;
+};
 
 const QUICK_ACTIONS = [
   {
-    href: '/(tabs)/lista-compra' as const,
-    icon: 'cart-outline' as const,
+    id: 'expense',
+    title: 'Registrar gasto',
+    text: 'Anótalo en pocos pasos',
+    icon: 'add-circle-outline' as const,
+    color: BrandColors.orange,
+    background: BrandColors.orangeSoft,
+  },
+  {
+    id: 'list',
     title: 'Mi lista',
-    text: 'Organiza tu próxima compra',
-    color: '#15803d',
-    background: '#dcfce7',
+    text: 'Prepara tu mercado',
+    icon: 'cart-outline' as const,
+    color: BrandColors.primary,
+    background: BrandColors.primarySoft,
   },
   {
-    href: '/(tabs)/productos' as const,
+    id: 'prices',
+    title: 'Comparar precios',
+    text: 'Busca opciones para ahorrar',
+    icon: 'pricetag-outline' as const,
+    color: '#93620b',
+    background: BrandColors.yellowSoft,
+  },
+  {
+    id: 'savings',
+    title: 'Mi ahorro',
+    text: 'Avanza hacia tu meta',
+    icon: 'flag-outline' as const,
+    color: BrandColors.primary,
+    background: BrandColors.primarySoft,
+  },
+] as const;
+
+const COMMERCE_ACTIONS = [
+  {
+    id: 'catalog',
+    title: 'Catálogo',
+    text: 'Actualiza tus productos',
     icon: 'basket-outline' as const,
-    title: 'Productos',
-    text: 'Explora el catálogo',
-    color: '#0369a1',
-    background: '#e0f2fe',
+    color: BrandColors.primary,
+    background: BrandColors.primarySoft,
   },
   {
-    href: '/(tabs)/presupuesto' as const,
-    icon: 'wallet-outline' as const,
-    title: 'Presupuesto',
-    text: 'Revisa tu planeación',
-    color: '#7c3aed',
-    background: '#ede9fe',
+    id: 'stores',
+    title: 'Tiendas',
+    text: 'Consulta el mapa local',
+    icon: 'map-outline' as const,
+    color: '#93620b',
+    background: BrandColors.yellowSoft,
   },
   {
-    href: '/historial-compras' as const,
-    icon: 'receipt-outline' as const,
-    title: 'Mis compras',
-    text: 'Consulta tus facturas',
-    color: '#b45309',
-    background: '#fef3c7',
+    id: 'sales',
+    title: 'Mis ventas',
+    text: 'Revisa tus registros',
+    icon: 'stats-chart-outline' as const,
+    color: BrandColors.orange,
+    background: BrandColors.orangeSoft,
   },
-];
+  {
+    id: 'account',
+    title: 'Mi cuenta',
+    text: 'Consulta tu perfil',
+    icon: 'person-circle-outline' as const,
+    color: BrandColors.primary,
+    background: BrandColors.primarySoft,
+  },
+] as const;
 
 export function WelcomeScreen() {
-  const { user, isAdmin, isComercio } = useAuth();
+  const { user, isComercio } = useAuth();
+  const userId = user?.id_usuario;
   const firstName = user?.nombre?.trim().split(/\s+/)[0];
-  const roleLabel = isAdmin ? 'Administrador' : isComercio ? 'Comercio afiliado' : 'Tu espacio personal';
-  const greetingHour = new Date().getHours();
-  const greeting = greetingHour < 12 ? 'Buenos días' : greetingHour < 19 ? 'Buenas tardes' : 'Buenas noches';
+  const [budget, setBudget] = useState<BudgetSnapshot | null>(null);
+  const [upcomingBudgetStart, setUpcomingBudgetStart] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState(false);
+  const [expenseModalVisible, setExpenseModalVisible] = useState(false);
+
+  const loadSummary = useCallback(async () => {
+    if (!userId || isComercio) {
+      setBudget(null);
+      setUpcomingBudgetStart(null);
+      setSummaryError(false);
+      setSummaryLoading(false);
+      return;
+    }
+
+    setSummaryLoading(true);
+    setSummaryError(false);
+    try {
+      const [budgets, purchases, movements] = await Promise.all([
+        obtenerPresupuestos(userId),
+        obtenerCompras(userId),
+        obtenerMovimientosHogar(userId),
+      ]);
+      const today = localDate();
+      const activeBudgets = budgets.filter((item) => item.pre_estado === 1);
+      const currentBudget = activeBudgets.find(
+        (item) => item.fecha_inicio <= today && item.fecha_fin >= today
+      );
+      const upcomingBudget = activeBudgets
+        .filter((item) => item.fecha_inicio > today)
+        .sort((left, right) => left.fecha_inicio.localeCompare(right.fecha_inicio))[0];
+
+      setUpcomingBudgetStart(upcomingBudget?.fecha_inicio ?? null);
+      if (!currentBudget) {
+        setBudget(null);
+        return;
+      }
+
+      const marketPurchases = totalPurchasesForBudget(purchases, currentBudget);
+      const otherExpenses = totalExpensesForBudget(movements, currentBudget);
+      setBudget({
+        name: currentBudget.nombre,
+        amount: Number(currentBudget.monto),
+        spent: marketPurchases + otherExpenses,
+        daysRemaining: daysUntil(currentBudget.fecha_fin, today),
+      });
+    } catch (error) {
+      console.error('No se pudo cargar el resumen del presupuesto:', error);
+      setBudget(null);
+      setUpcomingBudgetStart(null);
+      setSummaryError(true);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [isComercio, userId]);
+
+  useFocusEffect(useCallback(() => {
+    void loadSummary();
+  }, [loadSummary]));
+
+  const openAction = (action: string) => {
+    switch (action) {
+      case 'expense':
+        if (user) setExpenseModalVisible(true);
+        else router.push('/login');
+        break;
+      case 'list':
+        router.push('/(tabs)/lista-compra');
+        break;
+      case 'prices':
+      case 'catalog':
+        router.push('/(tabs)/productos');
+        break;
+      case 'savings':
+        router.push(user ? '/metas-ahorro' : '/login');
+        break;
+      case 'stores':
+        router.push('/(tabs)/mapa-tiendas');
+        break;
+      case 'sales':
+        router.push('/(tabs)/presupuesto');
+        break;
+      case 'account':
+        router.push('/(tabs)/cuenta');
+        break;
+    }
+  };
+
+  const actions = isComercio ? COMMERCE_ACTIONS : QUICK_ACTIONS;
+  const remaining = budget ? budget.amount - budget.spent : 0;
+  const spentPercent = budget && budget.amount > 0
+    ? Math.min((budget.spent / budget.amount) * 100, 100)
+    : 0;
+  const overBudget = Boolean(budget && remaining < 0);
+  const needsAttention = Boolean(budget && spentPercent >= 80);
+  const statusColor = overBudget
+    ? BrandColors.red
+    : needsAttention
+    ? '#93620b'
+    : BrandColors.primary;
+  const statusText = overBudget
+    ? `Has superado el límite por ${currency(Math.abs(remaining))}.`
+    : needsAttention
+    ? `Ya usaste el ${Math.round(spentPercent)}% de tu presupuesto.`
+    : `Vas bien: has usado el ${Math.round(spentPercent)}% de tu presupuesto.`;
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.topBar}>
-        <View style={styles.brand}>
-          <AppLogo size={42} />
-          <View>
-            <Text style={styles.brandName}>Mi Canasta</Text>
-            <Text style={styles.brandCaption}>RIOHACHA · LA GUAJIRA</Text>
+    <>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.topBar}>
+          <View style={styles.brand}>
+            <AppLogo size={46} />
+            <View>
+              <Text style={styles.brandName}>Mi Canasta</Text>
+              <Text style={styles.brandCaption}>RIOHACHA · LA GUAJIRA</Text>
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            <BotonLecturaVoz
+              texto={user
+                ? `Hola ${firstName || 'bienvenido'} a Mi Canasta. Revisa cuánto te queda, registra gastos y organiza tu mercado.`
+                : 'Bienvenido a Mi Canasta. Compara precios, prepara tu lista y organiza el gasto de tu hogar.'}
+              size="pequeno"
+              etiqueta="Voz"
+            />
+            <Pressable
+              onPress={() => router.push('/(tabs)/cuenta')}
+              style={({ pressed }) => [styles.accountButton, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={user ? 'Abrir mi cuenta' : 'Iniciar sesión o crear cuenta'}
+              accessibilityHint="Abre tu perfil y opciones de cuenta"
+            >
+              <Ionicons name={user ? 'person' : 'person-outline'} size={21} color={BrandColors.primary} />
+            </Pressable>
           </View>
         </View>
-        <Pressable
-          onPress={() => router.push('/(tabs)/cuenta')}
-          style={({ pressed }) => [styles.accountButton, pressed && styles.pressed]}
-          accessibilityRole="button"
-          accessibilityLabel={user ? 'Abrir mi cuenta' : 'Iniciar sesión o crear cuenta'}
-          accessibilityHint="Abre tu perfil y opciones de cuenta"
-        >
-          <Ionicons name={user ? 'person' : 'person-outline'} size={19} color="#166534" />
-        </Pressable>
-      </View>
 
-      <View style={[styles.hero, user ? styles.heroSignedIn : styles.heroGuest]}>
-        <View style={styles.heroDecorationLarge} />
-        <View style={styles.heroDecorationSmall} />
-        <View style={styles.heroContent}>
-          <View style={styles.heroEyebrow}>
-            <Ionicons name={user ? 'sunny-outline' : 'sparkles-outline'} size={15} color="#bbf7d0" />
-            <Text style={styles.eyebrowText}>
-              {user ? greeting.toUpperCase() : 'PLANEA · COMPARA · ORGANIZA'}
+        {isComercio ? (
+          <View style={styles.welcomeCard}>
+            <View style={styles.welcomeIcon}>
+              <Ionicons name="storefront-outline" size={23} color={BrandColors.primary} />
+            </View>
+            <Text style={styles.eyebrow}>PARA TU COMERCIO</Text>
+            <Text style={styles.welcomeTitle}>Hola, {firstName || 'bienvenido'}</Text>
+            <Text style={styles.welcomeText}>Actualiza tu catálogo y consulta las ventas registradas.</Text>
+            <Pressable
+              onPress={() => router.push('/(tabs)/presupuesto')}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Consultar las ventas de mi comercio"
+            >
+              <Text style={styles.primaryButtonText}>Ver mis ventas</Text>
+              <Ionicons name="arrow-forward" size={18} color="#ffffff" />
+            </Pressable>
+          </View>
+        ) : !user ? (
+          <View style={styles.welcomeCard}>
+            <Text style={styles.eyebrow}>TU MERCADO, A TU MANERA</Text>
+            <Text style={styles.welcomeTitle}>Compra con más tranquilidad</Text>
+            <Text style={styles.welcomeText}>Compara precios, prepara tu lista y cuida el dinero de tu hogar.</Text>
+          </View>
+        ) : summaryLoading ? (
+          <View style={styles.summaryCard} accessibilityLiveRegion="polite">
+            <ActivityIndicator color={BrandColors.primary} accessibilityLabel="Consultando cuánto queda del presupuesto" />
+            <Text style={styles.summaryHint}>Consultando tu presupuesto…</Text>
+          </View>
+        ) : summaryError ? (
+          <View style={styles.summaryCard}>
+            <View style={[styles.statusIcon, { backgroundColor: BrandColors.orangeSoft }]}>
+              <Ionicons name="refresh-outline" size={22} color={BrandColors.orange} />
+            </View>
+            <Text style={styles.summaryTitle}>No pudimos actualizar tu saldo</Text>
+            <Text style={styles.summaryHint}>Tus registros siguen guardados. Intenta cargar el resumen otra vez.</Text>
+            <Pressable
+              onPress={() => void loadSummary()}
+              style={styles.retryButton}
+              accessibilityRole="button"
+              accessibilityLabel="Volver a consultar mi presupuesto"
+            >
+              <Text style={styles.retryButtonText}>Intentar de nuevo</Text>
+            </Pressable>
+          </View>
+        ) : budget ? (
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceHeading}>
+              <View style={styles.balanceIcon}>
+                <Ionicons name="wallet-outline" size={20} color={BrandColors.primary} />
+              </View>
+              <View style={styles.balanceHeadingCopy}>
+                <Text style={styles.eyebrow}>TU MERCADO</Text>
+                <Text style={styles.budgetName} numberOfLines={1}>{budget.name}</Text>
+              </View>
+              <Ionicons name="sunny-outline" size={21} color={BrandColors.orange} />
+            </View>
+            <Text style={styles.balanceLabel}>{overBudget ? 'Te pasaste por' : 'Te quedan'}</Text>
+            <Text
+              style={[styles.balanceAmount, overBudget && styles.overBudgetAmount]}
+              accessibilityLabel={`${currency(Math.abs(remaining))} pesos ${overBudget ? 'por encima del presupuesto' : 'disponibles'}`}
+            >
+              {currency(Math.abs(remaining))}
+            </Text>
+            <Text style={styles.balanceContext}>
+              {overBudget ? 'Revisa tus gastos con calma.' : `Para ${budget.daysRemaining} ${budget.daysRemaining === 1 ? 'día' : 'días'} de mercado.`}
+            </Text>
+            <View
+              style={styles.progressTrack}
+              accessibilityRole="text"
+              accessibilityLabel={`Has usado el ${Math.round(spentPercent)} por ciento de ${currency(budget.amount)}.`}
+            >
+              <View style={[styles.progressFill, { width: `${spentPercent}%`, backgroundColor: statusColor }]} />
+            </View>
+            <View style={styles.progressLabels}>
+              <Text style={styles.progressLabel}>Gastado: {currency(budget.spent)}</Text>
+              <Text style={styles.progressLabel}>Meta: {currency(budget.amount)}</Text>
+            </View>
+            <View style={styles.statusRow} accessibilityLiveRegion="polite">
+              <Ionicons
+                name={overBudget ? 'alert-circle-outline' : needsAttention ? 'warning-outline' : 'checkmark-circle-outline'}
+                size={19}
+                color={statusColor}
+              />
+              <Text style={[styles.statusText, { color: statusColor }]}>{statusText}</Text>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.summaryCard}>
+            <View style={styles.statusIcon}>
+              <Ionicons name="basket-outline" size={23} color={BrandColors.primary} />
+            </View>
+            <Text style={styles.summaryTitle}>
+              {upcomingBudgetStart
+                ? `Tu próximo presupuesto empieza el ${formatShortDate(upcomingBudgetStart)}`
+                : 'Tu saldo estará aquí'}
+            </Text>
+            <Text style={styles.summaryHint}>
+              {upcomingBudgetStart
+                ? 'Cuando empiece el periodo, verás cuánto te queda para tu mercado.'
+                : 'Crea un presupuesto para saber cuánto dinero te queda durante el mes.'}
+            </Text>
+            <Pressable
+              onPress={() => router.push('/(tabs)/presupuesto')}
+              style={styles.retryButton}
+              accessibilityRole="button"
+              accessibilityLabel="Configurar mi presupuesto"
+            >
+              <Text style={styles.retryButtonText}>{upcomingBudgetStart ? 'Ver presupuesto' : 'Crear presupuesto'}</Text>
+            </Pressable>
+          </View>
+        )}
+
+        <View style={styles.sectionHeading}>
+          <View>
+            <Text style={styles.sectionTitle} accessibilityRole="header">
+              {isComercio ? 'Tus accesos principales' : '¿Qué necesitas hoy?'}
+            </Text>
+            <Text style={styles.sectionCaption}>
+              {isComercio ? 'Herramientas para tu negocio' : 'Elige una opción para empezar'}
             </Text>
           </View>
-          <Text style={styles.title} accessibilityRole="header">
-            {user ? `Hola, ${firstName || 'bienvenido'} 👋` : 'Tu mercado, mejor organizado'}
-          </Text>
-          <Text style={styles.heroText}>
-            {user
-              ? 'Planea tu próxima compra, revisa opciones y lleva tus gastos al día.'
-              : 'Explora productos, compara precios y organiza el gasto de tu hogar desde un solo lugar.'}
-          </Text>
-          {user && (
-            <View style={styles.rolePill}>
-              <Ionicons
-                name={isAdmin ? 'shield-checkmark-outline' : isComercio ? 'storefront-outline' : 'person-outline'}
-                size={14}
-                color="#dcfce7"
-              />
-              <Text style={styles.rolePillText}>{roleLabel}</Text>
-            </View>
-          )}
-          <Pressable
-            onPress={() => router.push(user ? '/(tabs)/lista-compra' : '/(tabs)/productos')}
-            style={({ pressed }) => [styles.heroButton, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel={user ? 'Organizar mi próxima compra' : 'Explorar productos del catálogo'}
-            accessibilityHint={user ? 'Abre tu lista de compra' : 'Abre el catálogo de productos'}
-          >
-            <Text style={styles.heroButtonText}>{user ? 'Organizar mi compra' : 'Explorar productos'}</Text>
-            <Ionicons name="arrow-forward" size={17} color="#14532d" />
-          </Pressable>
         </View>
-      </View>
 
-      <View style={styles.sectionHeading}>
-        <View>
-          <Text style={styles.sectionTitle} accessibilityRole="header">Organiza tu compra</Text>
-          <Text style={styles.sectionCaption}>
-            Atajos para cada paso de tu mercado
-          </Text>
+        <View style={styles.actionsGrid}>
+          {actions.map((action) => (
+            <Pressable
+              key={action.id}
+              onPress={() => openAction(action.id)}
+              style={({ pressed }) => [
+                styles.actionCard,
+                { backgroundColor: action.background },
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`${action.title}. ${action.text}`}
+              accessibilityHint={`Abre ${action.title}`}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: BrandColors.surface }]}>
+                <Ionicons name={action.icon} size={24} color={action.color} />
+              </View>
+              <Text style={styles.actionTitle}>{action.title}</Text>
+              <Text style={styles.actionText}>{action.text}</Text>
+            </Pressable>
+          ))}
         </View>
-        <View style={styles.sectionBadge}>
-          <Ionicons name="apps-outline" size={17} color="#15803d" />
-          <Text style={styles.sectionBadgeText}>4 herramientas</Text>
-        </View>
-      </View>
 
-      <View style={styles.actionsGrid}>
-        {QUICK_ACTIONS.map((action) => (
-          <Pressable
-            key={action.title}
-            onPress={() => router.push(action.href)}
-            style={({ pressed }) => [styles.actionCard, pressed && styles.actionPressed]}
-            accessibilityRole="button"
-            accessibilityLabel={`${action.title}. ${action.text}`}
-            accessibilityHint={`Abre la sección ${action.title}`}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: action.background }]}>
-              <Ionicons name={action.icon} size={22} color={action.color} />
-            </View>
-            <Text style={styles.actionTitle}>{action.title}</Text>
-            <Text style={styles.actionText}>{action.text}</Text>
-            <Ionicons name="arrow-forward" size={16} color="#94a3b8" style={styles.actionArrow} />
-          </Pressable>
-        ))}
-      </View>
-
-      <Pressable
-        onPress={() => router.push('/(tabs)/chat')}
-        style={({ pressed }) => [styles.assistantCard, pressed && styles.actionPressed]}
-        accessibilityRole="button"
-        accessibilityLabel="Abrir el asistente de compras con Gemini"
-        accessibilityHint="Pide recomendaciones del catálogo o ideas para organizar tu presupuesto"
-      >
-        <View style={styles.assistantIcon}>
-          <Ionicons name="sparkles" size={22} color="#7c3aed" />
-        </View>
-        <View style={styles.assistantCopy}>
-          <Text style={styles.assistantEyebrow}>ASISTENTE DE COMPRAS</Text>
-          <Text style={styles.assistantTitle}>¿Buscas ideas para tu mercado?</Text>
-          <Text style={styles.assistantText}>Pide sugerencias del catálogo o una lista ajustada a tu presupuesto.</Text>
-        </View>
-        <View style={styles.assistantArrow}>
-          <Ionicons name="arrow-forward" size={17} color="#6d28d9" />
-        </View>
-      </Pressable>
-
-      <View style={styles.sectionHeading}>
-        <View>
-          <Text style={styles.sectionTitle} accessibilityRole="header">Pequeños hábitos, mejor mercado</Text>
-          <Text style={styles.sectionCaption}>Consejos sencillos para planear con intención</Text>
-        </View>
-        <View style={styles.tipsIcon}>
-          <Ionicons name="leaf-outline" size={18} color="#15803d" />
-        </View>
-      </View>
-
-      {QUICK_TIPS.map((tip, index) => (
-        <View key={tip.title} style={styles.tipCard}>
-          <View style={styles.tipNumber}>
-            <Text style={styles.tipNumberText}>0{index + 1}</Text>
+        <Pressable
+          onPress={() => router.push('/(tabs)/chat')}
+          style={({ pressed }) => [styles.assistantCard, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Abrir el asistente de compras"
+          accessibilityHint="Pide ideas para organizar tu mercado"
+        >
+          <View style={styles.assistantIcon}>
+            <Ionicons name="chatbubble-ellipses-outline" size={21} color={BrandColors.orange} />
           </View>
-          <View style={styles.tipIcon}>
-            <Ionicons name={tip.icon} size={20} color="#15803d" />
+          <View style={styles.assistantCopy}>
+            <Text style={styles.assistantTitle}>¿Necesitas una idea para tu mercado?</Text>
+            <Text style={styles.assistantText}>Consulta el asistente de compras.</Text>
           </View>
-          <View style={styles.tipCopy}>
-            <Text style={styles.tipTitle}>{tip.title}</Text>
-            <Text style={styles.tipText}>{tip.text}</Text>
-          </View>
-        </View>
-      ))}
+          <Ionicons name="chevron-forward" size={19} color={BrandColors.primary} />
+        </Pressable>
+      </ScrollView>
 
-      <View style={styles.localCard}>
-        <View style={styles.localIcon}>
-          <Ionicons name="location" size={18} color="#0369a1" />
-        </View>
-        <View style={styles.localCopy}>
-          <Text style={styles.localTitle}>Cerca de ti</Text>
-          <Text style={styles.localText}>
-            Explora comercios de Riohacha y consulta la información disponible de sus productos.
-          </Text>
-        </View>
-      </View>
-    </ScrollView>
+      {user && !isComercio ? (
+        <QuickExpenseModal
+          visible={expenseModalVisible}
+          idUsuario={user.id_usuario}
+          onClose={() => setExpenseModalVisible(false)}
+          onSuccess={() => void loadSummary()}
+        />
+      ) : null}
+    </>
   );
 }
 
+function totalPurchasesForBudget(purchases: Compra[], budget: Presupuesto): number {
+  return purchases.reduce((total, purchase) => {
+    const date = purchaseDate(purchase.fecha_compra);
+    return date >= budget.fecha_inicio && date <= budget.fecha_fin
+      ? total + Number(purchase.total || 0)
+      : total;
+  }, 0);
+}
+
+function totalExpensesForBudget(movements: MovimientoHogar[], budget: Presupuesto): number {
+  return movements.reduce((total, movement) => {
+    const inBudget = movement.tipo === 'gasto'
+      && movement.fecha >= budget.fecha_inicio
+      && movement.fecha <= budget.fecha_fin;
+    return inBudget ? total + Number(movement.monto || 0) : total;
+  }, 0);
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f7f8f6' },
+  container: { flex: 1, backgroundColor: BrandColors.background },
   content: {
-    padding: 16,
-    paddingTop: 14,
-    paddingBottom: 100,
-    gap: 14,
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
+    padding: 16,
+    paddingTop: 14,
+    paddingBottom: 108,
+    gap: 18,
   },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
+  topBar: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandName: { color: '#14532d', fontSize: 16, fontWeight: '800' },
-  brandCaption: { color: '#64748b', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginTop: 2 },
+  brandName: { color: BrandColors.primary, fontSize: 18, fontWeight: '800' },
+  brandCaption: { color: BrandColors.muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.7, marginTop: 2 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   accountButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#dcfce7',
-  },
-  hero: { position: 'relative', borderRadius: 25, padding: 21, overflow: 'hidden' },
-  heroSignedIn: { backgroundColor: '#14532d' },
-  heroGuest: { backgroundColor: '#166534' },
-  heroContent: { zIndex: 1 },
-  heroDecorationLarge: {
-    position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    right: -78,
-    top: -82,
-  },
-  heroDecorationSmall: {
-    position: 'absolute',
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: 'rgba(134,239,172,0.1)',
-    right: 28,
-    bottom: -74,
-  },
-  heroEyebrow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  eyebrowText: { color: '#bbf7d0', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  title: { color: '#ffffff', fontSize: 27, lineHeight: 33, fontWeight: '800', marginTop: 12 },
-  heroText: { maxWidth: 520, color: '#dcfce7', fontSize: 13, lineHeight: 20, marginTop: 8 },
-  rolePill: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginTop: 16,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(220,252,231,0.25)',
-  },
-  rolePillText: { color: '#f0fdf4', fontSize: 11, fontWeight: '700' },
-  heroButton: {
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    paddingHorizontal: 15,
-    marginTop: 16,
-    borderRadius: 13,
-    backgroundColor: '#ffffff',
-  },
-  heroButtonText: { color: '#14532d', fontSize: 13, fontWeight: '800' },
-  sectionHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 7,
-    marginBottom: 1,
-  },
-  sectionTitle: { color: '#14532d', fontSize: 17, fontWeight: '800' },
-  sectionCaption: { color: '#64748b', fontSize: 12, marginTop: 3 },
-  sectionBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 16, backgroundColor: '#f0fdf4' },
-  sectionBadgeText: { color: '#166534', fontSize: 10, fontWeight: '700' },
-  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  actionCard: {
-    position: 'relative',
-    flexGrow: 1,
-    flexBasis: '46%',
-    minWidth: 145,
-    minHeight: 132,
-    padding: 14,
-    borderRadius: 17,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5eee7',
-  },
-  actionPressed: { opacity: 0.75, transform: [{ scale: 0.98 }] },
-  actionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  actionTitle: { color: '#0f172a', fontSize: 14, fontWeight: '800' },
-  actionText: { color: '#64748b', fontSize: 11, lineHeight: 16, marginTop: 3, paddingRight: 12 },
-  actionArrow: { position: 'absolute', right: 13, bottom: 14 },
-  assistantCard: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 14, borderRadius: 18, backgroundColor: '#faf5ff', borderWidth: 1, borderColor: '#e9d5ff' },
-  assistantIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: '#ede9fe' },
-  assistantCopy: { flex: 1, gap: 3 },
-  assistantEyebrow: { color: '#7c3aed', fontSize: 9, fontWeight: '800', letterSpacing: 0.7 },
-  assistantTitle: { color: '#312e81', fontSize: 13, fontWeight: '800' },
-  assistantText: { color: '#64748b', fontSize: 10, lineHeight: 15 },
-  assistantArrow: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, backgroundColor: '#ede9fe' },
-  tipsIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#dcfce7' },
-  tipCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 12,
-    backgroundColor: '#ffffff',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e5eee7',
+    borderColor: BrandColors.border,
+    backgroundColor: BrandColors.surface,
   },
-  tipNumber: { width: 24, alignItems: 'center' },
-  tipNumberText: { color: '#94a3b8', fontSize: 10, fontWeight: '800' },
-  tipIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#dcfce7',
+  welcomeCard: {
+    gap: 10,
+    padding: 20,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BrandColors.border,
+    backgroundColor: BrandColors.surface,
+  },
+  welcomeIcon: {
+    width: 46,
+    height: 46,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: BrandColors.primarySoft,
   },
-  tipCopy: { flex: 1, gap: 3 },
-  tipTitle: { color: '#0f172a', fontSize: 13, fontWeight: '700' },
-  tipText: { color: '#64748b', fontSize: 11, lineHeight: 16 },
-  localCard: {
+  eyebrow: { color: BrandColors.primary, fontSize: 12, fontWeight: '800', letterSpacing: 0.7 },
+  welcomeTitle: { color: BrandColors.text, fontSize: 26, lineHeight: 32, fontWeight: '800' },
+  welcomeText: { color: BrandColors.muted, fontSize: 16, lineHeight: 23 },
+  primaryButton: {
+    minHeight: 50,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 17,
+    marginTop: 4,
+    borderRadius: 15,
+    backgroundColor: BrandColors.primary,
+  },
+  primaryButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '800' },
+  summaryCard: {
+    minHeight: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 11,
+    padding: 20,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BrandColors.border,
+    backgroundColor: BrandColors.surface,
+  },
+  statusIcon: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 17,
+    backgroundColor: BrandColors.primarySoft,
+  },
+  summaryTitle: { color: BrandColors.text, fontSize: 19, lineHeight: 25, fontWeight: '800', textAlign: 'center' },
+  summaryHint: { color: BrandColors.muted, fontSize: 15, lineHeight: 22, textAlign: 'center' },
+  retryButton: {
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingHorizontal: 17,
+    borderRadius: 14,
+    backgroundColor: BrandColors.primarySoft,
+  },
+  retryButtonText: { color: BrandColors.primary, fontSize: 15, fontWeight: '800' },
+  balanceCard: {
+    gap: 8,
+    padding: 19,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#dce8d7',
+    backgroundColor: '#f1f7e9',
+  },
+  balanceHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  balanceIcon: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: BrandColors.surface,
+  },
+  balanceHeadingCopy: { flex: 1, gap: 2 },
+  budgetName: { color: BrandColors.muted, fontSize: 14, fontWeight: '600' },
+  balanceLabel: { color: BrandColors.primary, fontSize: 15, fontWeight: '800', marginTop: 8 },
+  balanceAmount: { color: BrandColors.primary, fontSize: 38, lineHeight: 46, fontWeight: '900' },
+  overBudgetAmount: { color: BrandColors.red },
+  balanceContext: { color: BrandColors.text, fontSize: 16, lineHeight: 23 },
+  progressTrack: { height: 12, overflow: 'hidden', marginTop: 8, borderRadius: 8, backgroundColor: '#e5e3d6' },
+  progressFill: { height: '100%', borderRadius: 8 },
+  progressLabels: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  progressLabel: { color: BrandColors.muted, fontSize: 12, fontWeight: '600' },
+  statusRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, marginTop: 3 },
+  statusText: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  sectionHeading: { marginTop: 1 },
+  sectionTitle: { color: BrandColors.text, fontSize: 19, fontWeight: '800' },
+  sectionCaption: { color: BrandColors.muted, fontSize: 14, lineHeight: 20, marginTop: 3 },
+  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 11 },
+  actionCard: {
+    flexGrow: 1,
+    flexBasis: '46%',
+    minWidth: 142,
+    minHeight: 138,
+    justifyContent: 'center',
+    gap: 7,
+    padding: 15,
+    borderRadius: 19,
+  },
+  actionIcon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 15 },
+  actionTitle: { color: BrandColors.text, fontSize: 16, fontWeight: '800' },
+  actionText: { color: BrandColors.muted, fontSize: 14, lineHeight: 19 },
+  assistantCard: {
+    minHeight: 66,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 11,
-    backgroundColor: '#eff6ff',
-    padding: 14,
-    borderRadius: 16,
+    padding: 13,
+    borderRadius: 17,
     borderWidth: 1,
-    borderColor: '#dbeafe',
+    borderColor: '#f0d7b6',
+    backgroundColor: '#fff3e4',
   },
-  localIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#dbeafe',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  localCopy: { flex: 1, gap: 3 },
-  localTitle: { color: '#1e3a8a', fontSize: 13, fontWeight: '800' },
-  localText: { color: '#1e40af', fontSize: 11, lineHeight: 16 },
-  pressed: { opacity: 0.76 },
+  assistantIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: BrandColors.surface },
+  assistantCopy: { flex: 1, gap: 3 },
+  assistantTitle: { color: BrandColors.text, fontSize: 15, fontWeight: '800' },
+  assistantText: { color: BrandColors.muted, fontSize: 14, lineHeight: 19 },
+  pressed: { opacity: 0.78 },
 });

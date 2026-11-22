@@ -55,6 +55,56 @@ export async function crearListaCompraConProducto(
   return id_lista;
 }
 
+export async function crearListaCompraConItems(
+  id_usuario: number,
+  nombre: string,
+  items: { id_producto: number; cantidad: number }[]
+): Promise<number> {
+  const nombreLista = nombre.trim();
+  if (!Number.isInteger(id_usuario) || id_usuario <= 0) {
+    throw new Error('Inicia sesión para crear una lista de compra.');
+  }
+  if (!nombreLista || nombreLista.length > 60) {
+    throw new Error('El nombre de la lista debe tener entre 1 y 60 caracteres.');
+  }
+  if (items.length === 0 || items.length > 30) {
+    throw new Error('La lista debe contener entre 1 y 30 productos.');
+  }
+
+  const productos = new Set<number>();
+  for (const item of items) {
+    if (
+      !Number.isInteger(item.id_producto) ||
+      item.id_producto <= 0 ||
+      !Number.isInteger(item.cantidad) ||
+      item.cantidad < 1 ||
+      item.cantidad > 100 ||
+      productos.has(item.id_producto)
+    ) {
+      throw new Error('La lista contiene productos o cantidades inválidos.');
+    }
+    productos.add(item.id_producto);
+  }
+
+  const db = await getDatabase();
+  let id_lista = 0;
+  await db.withTransactionAsync(async () => {
+    const result = await db.runAsync(
+      'INSERT INTO listas_compra (id_usuario, nombre) VALUES (?, ?)',
+      [id_usuario, nombreLista]
+    );
+    if (!result.lastInsertRowId) throw new Error('No se pudo crear la lista de compra.');
+    id_lista = result.lastInsertRowId;
+    for (const item of items) {
+      await db.runAsync(
+        'INSERT INTO detalles_lista_compra (id_lista, id_producto, cantidad, comprado) VALUES (?, ?, ?, 0)',
+        [id_lista, item.id_producto, item.cantidad]
+      );
+    }
+  });
+  return id_lista;
+}
+
 export async function crearListaCompraPresupuestada(
   id_usuario: number,
   nombre: string,

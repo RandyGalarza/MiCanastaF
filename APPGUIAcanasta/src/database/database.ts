@@ -11,7 +11,7 @@ export interface DatabaseConnection {
 }
 
 const WEB_DB_KEY = 'canasta_familiar_db';
-const WEB_DB_VERSION = '7';
+const WEB_DB_VERSION = '10';
 
 // Adaptador web con persistencia en localStorage versionada
 class WebDatabaseAdapter implements DatabaseConnection {
@@ -57,9 +57,12 @@ class WebDatabaseAdapter implements DatabaseConnection {
     this.tables.productos?.forEach((producto) => {
       producto.id_comercio ??= null;
       producto.pro_estado ??= producto.activo ?? 1;
+      producto.codigo_barras ??= null;
     });
     this.tables.comercios?.forEach((comercio) => {
       comercio.com_estado ??= comercio.estado ?? 1;
+      comercio.latitud ??= null;
+      comercio.longitud ??= null;
     });
     this.tables.listas_compra?.forEach((lista) => {
       lista.lis_estado ??= ['PENDIENTE', 'ACTIVO', '1'].includes(String(lista.estado)) ? 1 : 0;
@@ -163,6 +166,13 @@ class WebDatabaseAdapter implements DatabaseConnection {
         movimientos_saldo: 'id_movimiento',
         movimientos_hogar: 'id_movimiento_hogar',
         pagos_pendientes: 'id_pago',
+        reportes_precio: 'id_reporte',
+        confirmaciones_reporte: 'id_confirmacion',
+        sync_queue: 'id_queue',
+        deudas_tienda: 'id_deuda',
+        metas_ahorro: 'id_meta_ahorro',
+        perecederos: 'id_perecedero',
+        perfiles_hogar: 'id_perfil_hogar',
         detalles_presupuesto: 'id_detalle',
         facturas: 'id_factura',
         detalles_factura: 'id_detalle_factura',
@@ -208,6 +218,8 @@ class WebDatabaseAdapter implements DatabaseConnection {
         fac_estado: 1,
         disponible: 1,
         comprado: 0,
+        pagada: 0,
+        monto_ahorrado: 0,
       });
 
       cols.forEach((col, idx) => {
@@ -294,6 +306,14 @@ class WebDatabaseAdapter implements DatabaseConnection {
         this.tables[tableName] = (this.tables[tableName] || []).filter(
           (r) => Number(r.id_movimiento_hogar) !== movementId || Number(r.id_usuario) !== userId
         );
+      } else if (whereClause.includes('id_perecedero =')) {
+        const [perishableId, userId] = paramList.map(Number);
+        this.tables[tableName] = (this.tables[tableName] || []).filter(
+          (r) => Number(r.id_perecedero) !== perishableId || Number(r.id_usuario) !== userId
+        );
+      } else if (whereClause.includes('id_queue =')) {
+        const queueId = Number(paramList[0]);
+        this.tables[tableName] = (this.tables[tableName] || []).filter((row) => Number(row.id_queue) !== queueId);
       } else if (whereClause.includes('id_producto =')) {
         const idVal = paramList[0];
         this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_producto !== idVal);
@@ -370,8 +390,16 @@ class WebDatabaseAdapter implements DatabaseConnection {
     if (selectMatch) {
       const tableName = selectMatch[1];
       let records = [...(this.tables[tableName] || [])];
+      const whereClause = trimmed.split(/\bwhere\b/i)[1];
+      const equalityConditions = whereClause
+        ? [...whereClause.matchAll(/([a-z_]\w*)\s*=\s*\?/gi)]
+        : [];
 
-      if (trimmed.includes('WHERE nombre = ? AND id_comercio = ?')) {
+      if (equalityConditions.length > 0 && equalityConditions.length === paramList.length) {
+        records = records.filter((record) =>
+          equalityConditions.every((condition, index) => record[condition[1]] === paramList[index])
+        );
+      } else if (trimmed.includes('WHERE nombre = ? AND id_comercio = ?')) {
         records = records.filter(
           (r) => r.nombre === paramList[0] && r.id_comercio === paramList[1]
         );
@@ -531,6 +559,17 @@ async function migrateNativeDatabase(db: DatabaseConnection) {
     await db.execAsync(
       'ALTER TABLE productos ADD COLUMN id_comercio INTEGER REFERENCES comercios(id_comercio)'
     );
+  }
+  if (!columns.has('codigo_barras')) {
+    await db.execAsync('ALTER TABLE productos ADD COLUMN codigo_barras TEXT');
+  }
+
+  const commerceColumns = await getColumns('comercios');
+  if (!commerceColumns.has('latitud')) {
+    await db.execAsync('ALTER TABLE comercios ADD COLUMN latitud REAL');
+  }
+  if (!commerceColumns.has('longitud')) {
+    await db.execAsync('ALTER TABLE comercios ADD COLUMN longitud REAL');
   }
 }
 

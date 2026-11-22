@@ -1,10 +1,12 @@
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { initializeDatabase } from '../database/database';
 import { seedDatabase } from '../database/seed';
 import { pushToSupabase, syncDatabase } from '../database/syncService';
 import { AuthProvider } from '../contexts/auth-context';
+import { BrandColors } from '../constants/theme';
 
 export default function RootLayout() {
   const [databaseReady, setDatabaseReady] = useState(false);
@@ -32,12 +34,36 @@ export default function RootLayout() {
   return (
     databaseReady ? (
       <AuthProvider>
-        <Stack screenOptions={{ headerShown: false }} />
+        <>
+          <NotificationObserver />
+          <Stack screenOptions={{ headerShown: false }} />
+        </>
       </AuthProvider>
     ) : (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8faf8' }} accessibilityLiveRegion="polite">
-        <ActivityIndicator size="large" color="#15803d" accessibilityLabel="Preparando la aplicación" />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BrandColors.background }} accessibilityLiveRegion="polite">
+        <ActivityIndicator size="large" color={BrandColors.primary} accessibilityLabel="Preparando la aplicación" />
       </View>
     )
   );
+}
+
+function NotificationObserver() {
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    const redirect = (notification: Notifications.Notification) => {
+      const screen = notification.request.content.data?.screen;
+      if (screen === '/perecederos') router.push('/perecederos');
+      if (screen === '/(tabs)/presupuesto') router.push('/(tabs)/presupuesto');
+    };
+
+    const lastResponse = Notifications.getLastNotificationResponse();
+    if (lastResponse) redirect(lastResponse.notification);
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) =>
+      redirect(response.notification)
+    );
+    return () => subscription.remove();
+  }, []);
+
+  return null;
 }

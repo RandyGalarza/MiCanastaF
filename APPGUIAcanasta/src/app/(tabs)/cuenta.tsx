@@ -1,8 +1,13 @@
+import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/contexts/auth-context';
 import { mostrarAlerta } from '@/utils/alerts';
+import { PrivacyConsentModal } from '@/components/privacy-consent-modal';
+import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
+import { getDatabase } from '@/database/database';
+import { supabase } from '@/database/supabaseClient';
 
 function formatRegistrationDate(value: string): string {
   if (!value) return 'No disponible';
@@ -19,6 +24,41 @@ function formatRegistrationDate(value: string): string {
 
 export default function CuentaScreen() {
   const { user, isAdmin, isComercio, signOut } = useAuth();
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    setDeletingAccount(true);
+    try {
+      const db = await getDatabase();
+      // 1. Eliminar datos asociados del usuario localmente
+      await db.runAsync('DELETE FROM listas_compra WHERE id_usuario = ?', [user.id_usuario]);
+      await db.runAsync('DELETE FROM presupuestos WHERE id_usuario = ?', [user.id_usuario]);
+      await db.runAsync('DELETE FROM compras WHERE id_usuario = ?', [user.id_usuario]);
+      await db.runAsync('DELETE FROM billeteras WHERE id_usuario = ?', [user.id_usuario]);
+      await db.runAsync('DELETE FROM movimientos_hogar WHERE id_usuario = ?', [user.id_usuario]);
+      await db.runAsync('DELETE FROM reportes_precio WHERE id_usuario = ?', [user.id_usuario]);
+      await db.runAsync('DELETE FROM usuarios WHERE id_usuario = ?', [user.id_usuario]);
+
+      // 2. Eliminar de Supabase en la nube
+      try {
+        await supabase.from('usuarios').delete().eq('id_usuario', user.id_usuario);
+      } catch (errCloud) {
+        console.warn('Error borrando usuario en la nube:', errCloud);
+      }
+
+      setPrivacyModalVisible(false);
+      mostrarAlerta('Cuenta eliminada', 'Tus datos han sido borrados por completo conforme a la Ley 1581.');
+      await signOut();
+      router.replace('/login');
+    } catch (e) {
+      console.error(e);
+      mostrarAlerta('Error', 'No se pudo eliminar la cuenta. Inténtalo de nuevo.');
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
 
   if (!user) {
     return (
@@ -89,10 +129,15 @@ export default function CuentaScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.pageHeading}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.pageEyebrow}>TU PERFIL</Text>
           <Text style={styles.pageTitle} accessibilityRole="header">Mi cuenta</Text>
         </View>
+        <BotonLecturaVoz
+          texto={`Perfil de ${user.nombre} ${user.apellido}. Correo: ${user.correo}. Rol: ${roleLabel}. Desde aquí puedes consultar tus compras, aviso de privacidad y opciones de cuenta.`}
+          size="pequeno"
+          etiqueta="Voz"
+        />
         <View style={styles.headingIcon}>
           <Ionicons name="person-circle-outline" size={23} color="#15803d" />
         </View>
@@ -220,6 +265,49 @@ export default function CuentaScreen() {
         <InfoRow label="Teléfono" value={user.telefono || 'No registrado'} icon="call-outline" />
       </View>
 
+      {/* Privacidad, Ley 1581 y Borrado de Cuenta */}
+      <View style={styles.sectionHeading}>
+        <View>
+          <Text style={styles.sectionTitle}>Privacidad y Marco Legal</Text>
+          <Text style={styles.sectionCaption}>Ley Estatutaria 1581 de 2012</Text>
+        </View>
+        <Ionicons name="shield-checkmark-outline" size={20} color="#15803d" />
+      </View>
+
+      <View style={styles.detailsCard}>
+        <Pressable
+          onPress={() => setPrivacyModalVisible(true)}
+          style={styles.actionRow}
+          accessibilityRole="button"
+          accessibilityLabel="Aviso de privacidad y derechos de datos"
+        >
+          <View style={[styles.actionIcon, { backgroundColor: '#dcfce7' }]}>
+            <Ionicons name="document-text-outline" size={20} color="#15803d" />
+          </View>
+          <View style={styles.actionCopy}>
+            <Text style={styles.actionTitle}>Aviso de Privacidad y Consentimiento</Text>
+            <Text style={styles.actionDescription}>Consulta tus derechos y opciones de tus datos</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+        </Pressable>
+        <View style={styles.detailsDivider} />
+        <Pressable
+          onPress={() => setPrivacyModalVisible(true)}
+          style={styles.actionRow}
+          accessibilityRole="button"
+          accessibilityLabel="Borrar mi cuenta y mis datos"
+        >
+          <View style={[styles.actionIcon, { backgroundColor: '#fee2e2' }]}>
+            <Ionicons name="trash-outline" size={20} color="#dc2626" />
+          </View>
+          <View style={styles.actionCopy}>
+            <Text style={[styles.actionTitle, { color: '#dc2626' }]}>Eliminar mi cuenta y datos</Text>
+            <Text style={styles.actionDescription}>Borrado total e irreversible de tu información</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#fca5a5" />
+        </Pressable>
+      </View>
+
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Cerrar sesión"
@@ -235,6 +323,13 @@ export default function CuentaScreen() {
       </Pressable>
 
       <Text style={styles.footerText}>Tu cuenta de Mi Canasta Familiar</Text>
+
+      <PrivacyConsentModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+        onDeleteAccount={() => void handleDeleteAccount()}
+        deleting={deletingAccount}
+      />
     </ScrollView>
   );
 }

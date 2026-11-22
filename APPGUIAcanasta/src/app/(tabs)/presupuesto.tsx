@@ -16,6 +16,9 @@ import type { MovimientoSaldo, PagoPendiente } from '@/repositories/compraReposi
 import { actualizarPresupuesto, crearPresupuesto, obtenerPresupuestos } from '@/repositories/presupuestoRepository';
 import { obtenerMovimientosHogar } from '@/repositories/movimientoHogarRepository';
 import { Compra, MovimientoHogar, Presupuesto, VentaComercio } from '@/types/database';
+import { QuickExpenseModal } from '@/components/quick-expense-modal';
+import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
+import { programarRecordatorioDiario } from '@/utils/notifications';
 
 const currency = (amount: number) => `$${Number(amount || 0).toLocaleString('es-CO')}`;
 type SalesPeriod = 'month' | 'all';
@@ -78,6 +81,8 @@ export default function PresupuestoScreen() {
   const [topUpError, setTopUpError] = useState('');
   const [walletActionError, setWalletActionError] = useState('');
   const [walletSaving, setWalletSaving] = useState(false);
+  const [quickExpenseVisible, setQuickExpenseVisible] = useState(false);
+  const [reminderSaved, setReminderSaved] = useState(false);
 
   const cargar = useCallback(async () => {
     if (!user) {
@@ -344,6 +349,38 @@ export default function PresupuestoScreen() {
           <Ionicons name="chevron-forward" size={15} color="#64748b" />
         </Link>
       )}
+      {user && !isComercio ? (
+        <View style={styles.householdActions}>
+          <Link href="/deudas-tienda" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Registrar deudas de tienda">
+            <Ionicons name="receipt-outline" size={17} color="#166534" />
+            <Text style={styles.householdActionText}>Fiado</Text>
+          </Link>
+          <Link href="/metas-ahorro" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver metas de ahorro">
+            <Ionicons name="flag-outline" size={17} color="#166534" />
+            <Text style={styles.householdActionText}>Metas</Text>
+          </Link>
+          <Link href="/recetas-economicas" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Buscar recetas económicas">
+            <Ionicons name="restaurant-outline" size={17} color="#166534" />
+            <Text style={styles.householdActionText}>Recetas</Text>
+          </Link>
+          <Link href="/perecederos" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver alimentos perecederos y recordatorios">
+            <Ionicons name="leaf-outline" size={17} color="#166534" />
+            <Text style={styles.householdActionText}>Perecederos</Text>
+          </Link>
+          <Link href="/ahorro-mensual" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver el informe mensual de ahorro estimado">
+            <Ionicons name="trending-down-outline" size={17} color="#166534" />
+            <Text style={styles.householdActionText}>Informe</Text>
+          </Link>
+          <Link href="/canasta-hogar" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Ver canasta recomendada para mi hogar">
+            <Ionicons name="people-outline" size={17} color="#166534" />
+            <Text style={styles.householdActionText}>Mi hogar</Text>
+          </Link>
+          <Link href="/hogar-compartido" style={styles.householdAction} accessibilityRole="link" accessibilityLabel="Configurar el hogar compartido">
+            <Ionicons name="people-circle-outline" size={17} color="#166534" />
+            <Text style={styles.householdActionText}>Compartir</Text>
+          </Link>
+        </View>
+      ) : null}
 
       {!user ? (
         <View style={styles.emptyCard}>
@@ -469,6 +506,67 @@ export default function PresupuestoScreen() {
             </View>
             <Text style={styles.balanceAmount}>{currency(remaining)}</Text>
             <Text style={styles.balanceName}>{presupuestoActual.nombre} · de {currency(presupuestoActual.monto)}</Text>
+            {/* Semáforo de alerta clara: Verde (<80%), Amarillo (80%-100%), Rojo (>100%) */}
+            <View style={styles.semaforoCardContainer}>
+              <View style={[
+                styles.semaforoStatusPill,
+                spent > presupuestoActual.monto
+                  ? styles.semaforoPillRed
+                  : spentPercentage >= 80
+                  ? styles.semaforoPillYellow
+                  : styles.semaforoPillGreen,
+              ]} accessibilityRole="text" accessibilityLiveRegion="polite" accessibilityLabel={
+                spent > presupuestoActual.monto
+                  ? `Alerta. Te pasaste del presupuesto por ${currency(spent - presupuestoActual.monto)}`
+                  : spentPercentage >= 80
+                  ? `Atención. Has gastado el ${Math.round(spentPercentage)} por ciento del presupuesto`
+                  : `Bien. Has usado el ${Math.round(spentPercentage)} por ciento del presupuesto`
+              }>
+                <Ionicons
+                  name={
+                    spent > presupuestoActual.monto
+                      ? 'alert-circle'
+                      : spentPercentage >= 80
+                      ? 'warning'
+                      : 'checkmark-circle'
+                  }
+                  size={18}
+                  color={
+                    spent > presupuestoActual.monto
+                      ? '#991b1b'
+                      : spentPercentage >= 80
+                      ? '#92400e'
+                      : '#166534'
+                  }
+                />
+                <Text style={[
+                  styles.semaforoStatusText,
+                  spent > presupuestoActual.monto
+                    ? { color: '#991b1b' }
+                    : spentPercentage >= 80
+                    ? { color: '#92400e' }
+                    : { color: '#166534' },
+                ]}>
+                  {spent > presupuestoActual.monto
+                    ? `¡Atención! Te pasaste del presupuesto por ${currency(spent - presupuestoActual.monto)}`
+                    : spentPercentage >= 80
+                    ? `Cuidado: Ya gastaste el ${Math.round(spentPercentage)}% de tu mercado de este mes`
+                    : `Vas bien: Has usado el ${Math.round(spentPercentage)}% de tu dinero planeado`}
+                </Text>
+              </View>
+              <BotonLecturaVoz
+                texto={`Tu saldo disponible es de ${remaining} pesos. Has gastado ${spent} pesos de los ${presupuestoActual.monto} pesos de tu presupuesto. ${
+                  spent > presupuestoActual.monto
+                    ? 'Alerta roja: te has pasado del dinero planeado.'
+                    : spentPercentage >= 80
+                    ? 'Alerta amarilla: ya gastaste más del 80% de tu mercado de este mes.'
+                    : 'Semáforo verde: vas bien con tu dinero.'
+                }`}
+                size="pequeno"
+                etiqueta="Escuchar saldo"
+              />
+            </View>
+
             <View style={styles.budgetProgressTrack}>
               <View style={[styles.budgetProgressFill, { width: `${spentPercentage}%` }, spent > presupuestoActual.monto && styles.budgetProgressOver]} />
             </View>
@@ -490,6 +588,44 @@ export default function PresupuestoScreen() {
             </View>
           </View>
 
+          {/* Botones de acción rápida: Registro Ultrarrápido de Gastos y Recordatorio Diario */}
+          <View style={styles.quickExpenseRow}>
+            <Pressable
+              onPress={() => setQuickExpenseVisible(true)}
+              style={styles.quickExpenseButton}
+              accessibilityRole="button"
+              accessibilityLabel="Anotar gasto en 2 toques"
+            >
+              <View style={styles.quickExpenseIconWrap}>
+                <Ionicons name="flash" size={20} color="#ffffff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.quickExpenseTitle}>Anotar gasto en 2 toques</Text>
+                <Text style={styles.quickExpenseDesc}>Iconos grandes y teclado táctil rápido</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#15803d" />
+            </Pressable>
+
+            {/* Recordatorio diario contra el abandono */}
+            <Pressable
+              onPress={async () => {
+                const res = await programarRecordatorioDiario(20, 0); // 8:00 PM todos los días
+                if (res) {
+                  setReminderSaved(true);
+                  setTimeout(() => setReminderSaved(false), 3000);
+                }
+              }}
+              style={styles.reminderCard}
+              accessibilityRole="button"
+              accessibilityLabel="Activar recordatorio diario de compras"
+            >
+              <Ionicons name={reminderSaved ? 'notifications-circle' : 'time-outline'} size={18} color="#b45309" />
+              <Text style={styles.reminderText}>
+                {reminderSaved ? '✅ ¡Recordatorio activo a las 8:00 PM!' : '🔔 Recordarme anotar gastos todos los días (8:00 PM)'}
+              </Text>
+            </Pressable>
+          </View>
+
           <View style={styles.infoCard}>
             <View style={styles.infoIcon}><Ionicons name="information-circle-outline" size={20} color="#0369a1" /></View>
             <View style={styles.infoCopy}>
@@ -499,7 +635,10 @@ export default function PresupuestoScreen() {
           </View>
 
           <View style={styles.sectionHeadingRow}>
-            <View>            <Text style={styles.sectionTitle} accessibilityRole="header">Resumen del presupuesto</Text><Text style={styles.sectionSubtitle}>Cifras del periodo seleccionado</Text></View>
+            <View>
+              <Text style={styles.sectionTitle} accessibilityRole="header">Resumen del presupuesto</Text>
+              <Text style={styles.sectionSubtitle}>Cifras del periodo seleccionado</Text>
+            </View>
             <Pressable onPress={() => startEdit(presupuestoActual)} style={styles.editBudgetButton} accessibilityRole="button" accessibilityLabel="Editar presupuesto" accessibilityHint="Modifica el monto o periodo seleccionado" hitSlop={6}>
               <Ionicons name="create-outline" size={17} color="#168344" />
               <Text style={styles.editBudgetText}>Editar</Text>
@@ -642,6 +781,14 @@ export default function PresupuestoScreen() {
       onChange={(field, value) => setDraft((current) => ({ ...current, [field]: field === 'monto' ? Number(value) : value }))}
       onAmountChange={setAmountText}
     />
+    {user && (
+      <QuickExpenseModal
+        visible={quickExpenseVisible}
+        idUsuario={user.id_usuario}
+        onClose={() => setQuickExpenseVisible(false)}
+        onSuccess={() => void cargar()}
+      />
+    )}
     <TopUpModal
       visible={topUpVisible}
       amount={topUpAmount}
@@ -1002,6 +1149,9 @@ const styles = StyleSheet.create({
   headingCopy: { flex: 1 },
   movementsLink: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#eaf6eb' },
   movementsLinkText: { flex: 1, color: '#166534', fontSize: 12, fontWeight: '700' },
+  householdActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  householdAction: { flexGrow: 1, flexBasis: '31%', minWidth: 96, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 6, borderRadius: 12, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dcebdc' },
+  householdActionText: { color: '#166534', fontSize: 11, fontWeight: '800' },
   newBudgetButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 13, borderRadius: 13, backgroundColor: '#168344' },
   newBudgetButtonText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
   title: { color: '#14532d', fontSize: 23, fontWeight: '800' },
@@ -1036,6 +1186,82 @@ const styles = StyleSheet.create({
   walletActionError: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, padding: 10, borderRadius: 12, backgroundColor: '#fef2f2' },
   walletActionErrorText: { flex: 1, color: '#991b1b', fontSize: 11, lineHeight: 16 },
   balanceCard: { backgroundColor: '#15803d', borderRadius: 22, padding: 20, boxShadow: '0px 5px 14px rgba(21, 128, 61, 0.18)' },
+  semaforoCardContainer: {
+    marginTop: 12,
+    gap: 8,
+  },
+  semaforoStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  semaforoPillGreen: {
+    backgroundColor: '#dcfce7',
+  },
+  semaforoPillYellow: {
+    backgroundColor: '#fef3c7',
+  },
+  semaforoPillRed: {
+    backgroundColor: '#fee2e2',
+  },
+  semaforoStatusText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  quickExpenseRow: {
+    gap: 10,
+    marginTop: 4,
+  },
+  quickExpenseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#86efac',
+    boxShadow: '0px 4px 12px rgba(22, 163, 74, 0.08)',
+  },
+  quickExpenseIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#16a34a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickExpenseTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  quickExpenseDesc: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  reminderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fef3c7',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  reminderText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#92400e',
+  },
   balanceTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   balanceLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   balanceLabel: { color: '#dcfce7', fontSize: 10, fontWeight: '800', letterSpacing: 1 },

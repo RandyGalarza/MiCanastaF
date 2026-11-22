@@ -36,6 +36,21 @@
       ],
       "expo-status-bar",
       "expo-sqlite",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite que Mi Canasta escanee códigos de barras de productos.",
+          "microphonePermission": "Mi Canasta no usa el micrófono.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Usamos tu ubicación para ordenar las tiendas cercanas en el mapa."
+        }
+      ],
       "expo-secure-store",
       "expo-sharing"
     ],

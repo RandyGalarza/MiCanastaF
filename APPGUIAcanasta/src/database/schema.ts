@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS comercios (
     direccion TEXT,
     telefono TEXT,
     tipo_comercio TEXT,
+    latitud REAL,
+    longitud REAL,
     com_estado INTEGER NOT NULL DEFAULT 1
 );
 
@@ -56,6 +58,7 @@ CREATE TABLE IF NOT EXISTS productos (
     descripcion TEXT,
     unidad_medida TEXT NOT NULL,
     marca TEXT,
+    codigo_barras TEXT,
     imagen_url TEXT,
     pro_estado INTEGER NOT NULL DEFAULT 1,
 
@@ -281,5 +284,114 @@ CREATE TABLE IF NOT EXISTS detalles_factura (
         REFERENCES usuarios(id_usuario)
         ON UPDATE CASCADE
         ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS reportes_precio (
+    id_reporte INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_producto INTEGER NOT NULL,
+    id_comercio INTEGER NOT NULL,
+    id_usuario INTEGER NOT NULL,
+    precio_reportado REAL NOT NULL,
+    comentario TEXT,
+    fecha_reporte TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    confirmaciones INTEGER NOT NULL DEFAULT 1,
+    estado TEXT NOT NULL DEFAULT 'aprobado',
+
+    FOREIGN KEY (id_producto)
+        REFERENCES productos(id_producto)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (id_comercio)
+        REFERENCES comercios(id_comercio)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS confirmaciones_reporte (
+    id_confirmacion INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_reporte INTEGER NOT NULL,
+    id_usuario INTEGER NOT NULL,
+    fecha TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (id_reporte, id_usuario),
+
+    FOREIGN KEY (id_reporte)
+        REFERENCES reportes_precio(id_reporte)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS deudas_tienda (
+    id_deuda INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    tienda TEXT NOT NULL,
+    concepto TEXT NOT NULL,
+    monto REAL NOT NULL CHECK (monto > 0),
+    fecha TEXT NOT NULL DEFAULT CURRENT_DATE,
+    pagada INTEGER NOT NULL DEFAULT 0 CHECK (pagada IN (0, 1)),
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS metas_ahorro (
+    id_meta_ahorro INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    nombre TEXT NOT NULL,
+    monto_objetivo REAL NOT NULL CHECK (monto_objetivo > 0),
+    monto_ahorrado REAL NOT NULL DEFAULT 0 CHECK (monto_ahorrado >= 0),
+    fecha_objetivo TEXT,
+    fecha_creacion TEXT NOT NULL DEFAULT CURRENT_DATE,
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS perecederos (
+    id_perecedero INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    nombre TEXT NOT NULL,
+    fecha_vencimiento TEXT NOT NULL,
+    cantidad TEXT NOT NULL DEFAULT '',
+    consumido INTEGER NOT NULL DEFAULT 0 CHECK (consumido IN (0, 1)),
+    notification_id TEXT,
+    fecha_creacion TEXT NOT NULL DEFAULT CURRENT_DATE,
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS perfiles_hogar (
+    id_perfil_hogar INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL UNIQUE,
+    integrantes INTEGER NOT NULL DEFAULT 4 CHECK (integrantes BETWEEN 1 AND 20),
+    fecha_actualizacion TEXT NOT NULL DEFAULT CURRENT_DATE,
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sync_queue (
+    id_queue INTEGER PRIMARY KEY AUTOINCREMENT,
+    tabla TEXT NOT NULL,
+    operacion TEXT NOT NULL,
+    datos_json TEXT NOT NULL,
+    fecha_creacion TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    intentos INTEGER NOT NULL DEFAULT 0
 );
 `;
