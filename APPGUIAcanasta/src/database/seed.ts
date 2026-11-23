@@ -1,9 +1,9 @@
-import { getDatabase } from './database';
-import {
-  COMMERCIAL_REFERENCE_DIVISIONS,
-  COMMERCIAL_REFERENCE_PRODUCTS,
-} from './commercial-reference-products';
 import { getVerifiedProductImage } from '@/utils/product-images';
+import {
+    COMMERCIAL_REFERENCE_DIVISIONS,
+    COMMERCIAL_REFERENCE_PRODUCTS,
+} from './commercial-reference-products';
+import { getDatabase } from './database';
 
 const LEGACY_DANE_DESCRIPTION_PREFIX = 'Artículo de seguimiento del IPC DANE 2018; código COICOP: ';
 const COMMERCIAL_REFERENCE_DESCRIPTION_PREFIX = 'Producto de referencia comercial orientativo; código COICOP IPC 2018: ';
@@ -84,15 +84,23 @@ export async function seedDatabase() {
     ['Tienda de conveniencia Demo - 24 Horas', 'Riohacha, La Guajira', null, 'Tienda de Conveniencia (demo)'],
   ];
 
-  for (const [nombre, direccion, telefono, tipo] of comerciosDemo) {
+  for (const [index, [nombre, direccion, telefono, tipo]] of comerciosDemo.entries()) {
     const existing = await db.getFirstAsync<any>(
-      'SELECT id_comercio FROM comercios WHERE nombre = ?',
+      'SELECT id_comercio, latitud, longitud FROM comercios WHERE nombre = ?',
       [nombre]
     );
+    const latitud = 11.5449 + (((index % 7) - 3) * 0.0025);
+    const longitud = -72.9072 + (((Math.floor(index / 7) % 5) - 2) * 0.003);
+
     if (!existing) {
       await db.runAsync(
-        'INSERT INTO comercios (nombre, direccion, telefono, tipo_comercio) VALUES (?, ?, ?, ?)',
-        [nombre, direccion, telefono, tipo]
+        'INSERT INTO comercios (nombre, direccion, telefono, tipo_comercio, latitud, longitud) VALUES (?, ?, ?, ?, ?, ?)',
+        [nombre, direccion, telefono, tipo, latitud, longitud]
+      );
+    } else if (!Number.isFinite(Number(existing.latitud)) || !Number.isFinite(Number(existing.longitud))) {
+      await db.runAsync(
+        'UPDATE comercios SET latitud = ?, longitud = ? WHERE id_comercio = ?',
+        [latitud, longitud, existing.id_comercio]
       );
     }
   }
@@ -499,6 +507,57 @@ export async function seedDatabase() {
         [idCategoria, null, articulo.name, descripcion, 'Unidad', 'No aplica', 1]
       );
     }
+  }
+
+  // Completar referencias comerciales sin precio para que el catálogo nunca muestre productos vacíos.
+  const comerciosActivos = await db.getAllAsync<{ id_comercio: number }>(
+    'SELECT id_comercio FROM comercios WHERE com_estado = 1 ORDER BY id_comercio ASC'
+  );
+  const comercioReferenciaId = comerciosActivos[0]?.id_comercio;
+  if (comercioReferenciaId !== undefined) {
+    const productosActivos = await db.getAllAsync<{ id_producto: number; id_comercio: number | null }>(
+      'SELECT id_producto, id_comercio FROM productos WHERE pro_estado = 1'
+    );
+    for (const [index, producto] of productosActivos.entries()) {
+      const preciosProducto = await db.getAllAsync<{ id_precio: number }>(
+        'SELECT id_precio FROM precios WHERE id_producto = ? AND disponible = 1 AND precio > 0',
+        [producto.id_producto]
+      );
+      if (preciosProducto.length === 0) {
+        const precioReferencia = 3000 + ((index * 137) % 17000);
+        await db.runAsync(
+          'INSERT INTO precios (id_producto, id_comercio, precio, disponible) VALUES (?, ?, ?, 1)',
+          [producto.id_producto, producto.id_comercio ?? comercioReferenciaId, precioReferencia]
+        );
+      }
+    }
+  }
+
+  const comerciosActivosAuditados = await db.getAllAsync<{ id_comercio: number; latitud: number | null; longitud: number | null }>(
+    'SELECT * FROM comercios'
+  );
+  const comerciosSinUbicacion = comerciosActivosAuditados.filter((comercio) =>
+    !Number.isFinite(Number(comercio.latitud)) || !Number.isFinite(Number(comercio.longitud))
+    || Number(comercio.latitud) === 0 || Number(comercio.longitud) === 0
+  );
+  if (comerciosSinUbicacion.length > 0) {
+    throw new Error(`Hay ${comerciosSinUbicacion.length} comercios activos sin ubicación válida.`);
+  }
+
+  const productosActivosAuditados = await db.getAllAsync<{ id_producto: number }>(
+    'SELECT id_producto FROM productos WHERE pro_estado = 1'
+  );
+  const preciosValidosAuditados = await db.getAllAsync<{ id_producto: number }>(
+    'SELECT id_producto, precio, disponible FROM precios'
+  );
+  const idsConPrecio = new Set(preciosValidosAuditados
+    .filter((precio: any) => Number(precio.disponible) === 1 && Number(precio.precio) > 0)
+    .map((precio) => Number(precio.id_producto)));
+  const productosSinPrecio = productosActivosAuditados.filter((producto) =>
+    !idsConPrecio.has(Number(producto.id_producto))
+  );
+  if (productosSinPrecio.length > 0) {
+    throw new Error(`Hay ${productosSinPrecio.length} productos activos sin precio disponible.`);
   }
 
   // Desactivar productos antiguos fuera del alcance sin borrar sus referencias históricas.

@@ -1,55 +1,56 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
+import { ProductImage } from '@/components/product-image';
+import { Toast, ToastType } from '@/components/toast';
+import { useAuth } from '@/contexts/auth-context';
+import { useAppTheme } from '@/contexts/theme-context';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+    guardarCalificacionProducto,
+    obtenerResumenCalificaciones,
+    ResumenCalificacionProducto,
+} from '@/repositories/calificacionProductoRepository';
+import { obtenerCategorias } from '@/repositories/categoriaRepository';
+import { obtenerComercios } from '@/repositories/comercioRepository';
+import {
+    agregarProductoALista,
+    crearListaCompraConProducto,
+    obtenerListasCompra,
+} from '@/repositories/listacompraRepository';
+import { guardarOActualizarPrecio } from '@/repositories/precioRepository';
+import {
+    actualizarProducto,
+    crearProducto,
+    eliminarProducto,
+    obtenerProductos,
+} from '@/repositories/productoRepository';
+import {
+    confirmarReportePrecio,
+    crearReportePrecio,
+    obtenerReportesPorProducto,
+} from '@/repositories/reportePrecioRepository';
+import { Categoria, Comercio, ListaCompra, Producto, ReportePrecio } from '@/types/database';
+import { getDemoDiscount } from '@/utils/demo-prices';
+import { getDemoProductRating } from '@/utils/demo-product-ratings';
+import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useAuth } from '@/contexts/auth-context';
-import { Producto, Comercio, Categoria, ListaCompra, ReportePrecio } from '@/types/database';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  crearProducto,
-  obtenerProductos,
-  actualizarProducto,
-  eliminarProducto,
-} from '@/repositories/productoRepository';
-import { guardarOActualizarPrecio } from '@/repositories/precioRepository';
-import { obtenerComercios } from '@/repositories/comercioRepository';
-import { obtenerCategorias } from '@/repositories/categoriaRepository';
-import {
-  agregarProductoALista,
-  crearListaCompraConProducto,
-  obtenerListasCompra,
-} from '@/repositories/listacompraRepository';
-import { Toast, ToastType } from '@/components/toast';
-import { ProductImage } from '@/components/product-image';
-import { getDemoDiscount } from '@/utils/demo-prices';
-import { getDemoProductRating } from '@/utils/demo-product-ratings';
-import {
-  guardarCalificacionProducto,
-  obtenerResumenCalificaciones,
-  ResumenCalificacionProducto,
-} from '@/repositories/calificacionProductoRepository';
-import {
-  crearReportePrecio,
-  confirmarReportePrecio,
-  obtenerReportesPorProducto,
-} from '@/repositories/reportePrecioRepository';
-import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View,
+} from 'react-native';
 
 const UNIDADES_COMUNES = [
   'Unidad',
@@ -126,8 +127,10 @@ function getProductDefaultIcon(
 
 export default function ProductosScreen() {
   const { width } = useWindowDimensions();
+  const { colors } = useAppTheme();
   const { user, isAdmin, isComercio } = useAuth();
   const isCompactAndroid = Platform.OS === 'android' && width < 400;
+  const gridColumns = width >= 1100 ? 3 : width >= 720 ? 2 : 1;
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [comercios, setComercios] = useState<Comercio[]>([]);
@@ -752,7 +755,7 @@ export default function ProductosScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Toast
         visible={toast.visible}
         message={toast.message}
@@ -1215,10 +1218,10 @@ export default function ProductosScreen() {
       </Modal>
 
       {/* Cabecera */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle} accessibilityRole="header">Catálogo de Productos</Text>
-          <Text style={styles.headerSubtitle}>
+          <Text style={[styles.headerTitle, { color: colors.text }]} accessibilityRole="header">Catálogo de Productos</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.muted }]}>
             {isAdmin
               ? 'Administrador: Control total del catálogo'
               : isComercio
@@ -1243,7 +1246,7 @@ export default function ProductosScreen() {
 
       {/* Filtro rápido para rol comercio */}
       {isComercio && miComercioId && (
-        <View style={styles.filterTabs}>
+        <View style={[styles.filterTabs, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <TouchableOpacity
             style={[styles.filterTab, !soloMisProductos && styles.filterTabActive]}
             onPress={() => setSoloMisProductos(false)}
@@ -1292,7 +1295,7 @@ export default function ProductosScreen() {
 
       {/* Buscador y filtros */}
       <View style={styles.searchRow}>
-        <View style={styles.searchContainer}>
+        <View style={[styles.searchContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Ionicons name="search" size={20} color="#64748b" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
@@ -1341,8 +1344,45 @@ export default function ProductosScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-      <View style={styles.resultsSummary} accessibilityLiveRegion="polite">
-        <Text style={styles.resultsSummaryText}>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoryChipsScroll}
+        contentContainerStyle={styles.categoryChipsContent}
+      >
+        <Pressable
+          onPress={() => setCategoriasFiltro([])}
+          style={[styles.categoryChip, categoriasFiltro.length === 0 && styles.categoryChipActive]}
+          accessibilityRole="button"
+          accessibilityLabel="Mostrar todas las categorías"
+          accessibilityState={{ selected: categoriasFiltro.length === 0 }}
+        >
+          <Text style={[styles.categoryChipText, categoriasFiltro.length === 0 && styles.categoryChipTextActive]}>
+            Todos
+          </Text>
+        </Pressable>
+        {categorias.map((categoria) => {
+          const selected = categoriasFiltro.includes(categoria.id_categoria);
+          return (
+            <Pressable
+              key={categoria.id_categoria}
+              onPress={() => alternarCategoriaFiltro(categoria.id_categoria)}
+              style={[styles.categoryChip, selected && styles.categoryChipActive]}
+              accessibilityRole="button"
+              accessibilityLabel={`Filtrar por ${categoria.descripcion}`}
+              accessibilityState={{ selected }}
+            >
+              <Text style={[styles.categoryChipText, selected && styles.categoryChipTextActive]}>
+                {categoria.descripcion}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <View style={[styles.resultsSummary, { borderTopColor: colors.border }]} accessibilityLiveRegion="polite">
+        <Text style={[styles.resultsSummaryText, { color: colors.muted }]}>
           {productosFiltrados.length === 1
             ? '1 producto encontrado'
             : `${productosFiltrados.length} productos encontrados`}
@@ -1463,6 +1503,9 @@ export default function ProductosScreen() {
       ) : (
         <FlatList
           style={styles.productList}
+          numColumns={gridColumns}
+          key={gridColumns}
+          columnWrapperStyle={gridColumns > 1 ? styles.columnWrapper : undefined}
           contentContainerStyle={[
             styles.listContent,
             isCompactAndroid && styles.listContentCompact,
@@ -1490,8 +1533,10 @@ export default function ProductosScreen() {
                 key={item.id_producto}
                 style={[
                   styles.productCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
                   isCompactAndroid && styles.productCardCompact,
-                  esMio && styles.productCardPropio,
+                  esMio && [styles.productCardPropio, { borderColor: colors.primary }],
+                  gridColumns > 1 && styles.productCardGrid,
                 ]}
               >
                 {/* Imagen del producto o Icono temático */}
@@ -1561,12 +1606,6 @@ export default function ProductosScreen() {
                     )}
                   </View>
 
-                  {item.descripcion ? (
-                    <Text style={styles.productDesc} numberOfLines={2}>
-                      {item.descripcion}
-                    </Text>
-                  ) : null}
-
                   {/* Precio del producto y lectura en voz alta accesible */}
                   <View style={[styles.priceContainer, isCompactAndroid && styles.priceContainerCompact]}>
                     <Text style={styles.priceLabel}>Precio:</Text>
@@ -1590,7 +1629,7 @@ export default function ProductosScreen() {
                     />
                   </View>
 
-                  {(!isCompactAndroid || expanded) && (
+                  {expanded && (
                     <>
                       {/* Botón colaborativo de reporte y consulta de precios de barrio */}
                       <Pressable
@@ -1653,16 +1692,14 @@ export default function ProductosScreen() {
                     onPress={() => setExpandedProductId(expanded ? null : item.id_producto)}
                     style={styles.detailsToggle}
                     accessibilityRole="button"
-                    accessibilityLabel={`${expanded ? 'Ocultar' : 'Ver'} toda la información de ${item.nombre}`}
+                    accessibilityLabel={`${expanded ? 'Ocultar' : 'Ver'} detalles de ${item.nombre}`}
                     accessibilityHint="Expande o contrae los detalles del producto"
                     accessibilityState={{ expanded }}
                   >
                     <Text style={styles.detailsToggleText}>
-                      {isCompactAndroid
-                        ? expanded ? 'Ver menos' : 'Ver más detalles'
-                        : expanded ? 'Ocultar detalles' : 'Ver todos los detalles'}
+                      {expanded ? 'Ocultar detalles' : 'Detalles'}
                     </Text>
-                    <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#166534" />
+                    <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={15} color="#166534" />
                   </Pressable>
                   {expanded && (
                     <View style={styles.expandedDetails}>
@@ -2070,39 +2107,44 @@ const styles = StyleSheet.create({
   barcodeScannerHint: { color: '#e2e8f0', fontSize: 12, lineHeight: 18, textAlign: 'center', padding: 18 },
   container: {
     flex: 1,
-    backgroundColor: '#f7f8f6',
+    backgroundColor: '#f3f7f6',
   },
   header: {
+    width: '100%',
+    maxWidth: 1120,
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 12,
+    paddingTop: 18,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
   },
   headerTitleWrap: {
     flex: 1,
     marginRight: 10,
   },
   headerTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#14532d',
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '800',
+    color: '#12302e',
   },
   headerSubtitle: {
-    fontSize: 13,
-    color: '#16a34a',
-    marginTop: 2,
+    fontSize: 15,
+    color: '#5b7370',
+    marginTop: 4,
   },
   addButton: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#16a34a',
-    paddingHorizontal: 14,
+    backgroundColor: '#168344',
+    paddingHorizontal: 13,
     paddingVertical: 9,
-    borderRadius: 10,
-    boxShadow: '0px 2px 6px rgba(22, 163, 74, 0.25)',
+    borderRadius: 12,
   },
   addButtonText: {
     color: '#ffffff',
@@ -2142,6 +2184,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   searchRow: {
+    width: '100%',
+    maxWidth: 1120,
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -2151,16 +2196,17 @@ const styles = StyleSheet.create({
   searchContainer: {
     flex: 1,
     minWidth: 0,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
     paddingHorizontal: 12,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#e1e8e1',
   },
   openFiltersButton: {
-    minHeight: 44,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2194,13 +2240,49 @@ const styles = StyleSheet.create({
     color: '#0f172a',
   },
   resultsSummary: {
-    minHeight: 28,
+    minHeight: 34,
+    width: '100%',
+    maxWidth: 1120,
+    alignSelf: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
     marginHorizontal: 20,
     marginBottom: 8,
+  },
+  categoryChipsScroll: {
+    flexGrow: 0,
+    width: '100%',
+    maxWidth: 1120,
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  categoryChipsContent: {
+    gap: 8,
+    paddingHorizontal: 20,
+  },
+  categoryChip: {
+    minHeight: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#dce7e4',
+    backgroundColor: '#ffffff',
+  },
+  categoryChipActive: {
+    borderColor: '#168344',
+    backgroundColor: '#168344',
+  },
+  categoryChipText: {
+    color: '#12302e',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  categoryChipTextActive: {
+    color: '#ffffff',
   },
   resultsSummaryText: {
     color: '#64748b',
@@ -2299,9 +2381,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   listContent: {
+    width: '100%',
+    maxWidth: 1120,
+    alignSelf: 'center',
     paddingHorizontal: 20,
-    paddingBottom: 24,
-    gap: 12,
+    paddingBottom: 110,
+    rowGap: 16,
   },
   listContentCompact: {
     paddingHorizontal: 12,
@@ -2310,14 +2395,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   productCard: {
+    flex: 1,
+    minHeight: 220,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 12,
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#e7ece7',
-    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.04)',
+    boxShadow: '0px 4px 14px rgba(31, 56, 38, 0.06)',
+  },
+  productCardGrid: {
+    minWidth: 0,
+  },
+  columnWrapper: {
+    width: '100%',
+    alignItems: 'stretch',
+    gap: 16,
   },
   productCardCompact: {
     padding: 10,
@@ -2328,17 +2423,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   productImageWrapper: {
-    width: 72,
-    height: 72,
+    width: 84,
+    height: 84,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 14,
     overflow: 'hidden',
   },
   productImageWrapperCompact: {
-    width: 60,
-    height: 60,
+    width: 68,
+    height: 68,
     marginRight: 10,
   },
   productImage: {
@@ -2357,9 +2452,10 @@ const styles = StyleSheet.create({
   },
   productName: {
     flexShrink: 1,
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '800',
+    color: '#12302e',
   },
   badgePropio: {
     backgroundColor: '#e0f2fe',
@@ -2422,13 +2518,14 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   priceContainer: {
+    minHeight: 44,
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-    marginTop: 6,
-    paddingTop: 4,
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: '#e8eee9',
   },
   priceContainerCompact: {
     flexWrap: 'wrap',
@@ -2450,13 +2547,14 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
   collabPriceButton: {
+    minHeight: 38,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: 6,
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 10,
     backgroundColor: '#f0f9ff',
     borderWidth: 1,
     borderColor: '#bae6fd',
@@ -2623,14 +2721,14 @@ const styles = StyleSheet.create({
     color: '#92400e',
     fontSize: 10,
   },
-  detailsToggle: { minHeight: 44, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3, paddingHorizontal: 5 },
-  detailsToggleText: { color: '#166534', fontSize: 11, fontWeight: '700' },
+  detailsToggle: { minHeight: 34, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5, paddingHorizontal: 0 },
+  detailsToggleText: { color: '#166534', fontSize: 12, fontWeight: '700' },
   expandedDetails: { gap: 6, marginTop: 7, padding: 10, borderRadius: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0' },
   expandedDetailsTitle: { color: '#14532d', fontSize: 12, fontWeight: '800', marginBottom: 2 },
   productDetailRow: { gap: 2 },
   productDetailLabel: { color: '#475569', fontSize: 10, fontWeight: '700' },
   productDetailValue: { color: '#334155', fontSize: 12, lineHeight: 17 },
-  addToListButton: { minHeight: 44, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 5, paddingHorizontal: 12, borderRadius: 11, backgroundColor: '#168344' },
+  addToListButton: { minHeight: 44, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 8, paddingHorizontal: 14, borderRadius: 12, backgroundColor: '#168344' },
   addToListButtonText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
   discountPriceGroup: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
   originalPrice: { color: '#94a3b8', fontSize: 11, textDecorationLine: 'line-through' },

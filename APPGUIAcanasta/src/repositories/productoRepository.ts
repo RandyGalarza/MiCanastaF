@@ -55,7 +55,7 @@ export async function obtenerProductos(): Promise<Producto[]> {
     `
     SELECT p.*, pr.precio
     FROM productos p
-    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1
+    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1 AND pr.precio > 0
     WHERE p.pro_estado = 1
     ORDER BY p.nombre ASC
     `
@@ -104,7 +104,7 @@ export async function obtenerProductosPorComercio(
     `
     SELECT p.*, pr.precio
     FROM productos p
-    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1
+    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1 AND pr.precio > 0
     WHERE p.id_comercio = ?
       AND p.pro_estado = 1
     ORDER BY p.nombre ASC
@@ -122,7 +122,7 @@ export async function obtenerProducto(
     `
     SELECT p.*, pr.precio
     FROM productos p
-    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1
+    LEFT JOIN precios pr ON p.id_producto = pr.id_producto AND pr.disponible = 1 AND pr.precio > 0
     WHERE p.id_producto = ?
     `,
     [id_producto]

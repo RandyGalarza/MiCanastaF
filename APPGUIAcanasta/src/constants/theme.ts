@@ -8,35 +8,55 @@ import '@/global.css';
 import { Platform } from 'react-native';
 
 export const BrandColors = {
-  primary: '#14532d',
-  primarySoft: '#e8f1e5',
-  background: '#fff9ef',
+  primary: '#168344',
+  primaryStrong: '#14532d',
+  primarySoft: '#eaf6eb',
+  background: '#f7f8f6',
   surface: '#ffffff',
-  text: '#2f352d',
-  muted: '#686f62',
-  border: '#e9e2d4',
-  orange: '#d96f24',
-  orangeSoft: '#fff0df',
-  yellow: '#f0bd4d',
+  surfaceElevated: '#ffffff',
+  text: '#1f2937',
+  muted: '#64748b',
+  border: '#dde4df',
+  orange: '#d97706',
+  orangeSoft: '#fff3dc',
+  yellow: '#d99a19',
   yellowSoft: '#fff6d8',
-  red: '#a94438',
-  redSoft: '#fce9e5',
+  red: '#b91c1c',
+  redSoft: '#fee2e2',
+} as const;
+
+export const DarkBrandColors = {
+  primary: '#57c8d8',
+  primaryStrong: '#2eb7ca',
+  primarySoft: '#17384a',
+  background: '#091827',
+  surface: '#10243a',
+  surfaceElevated: '#15304a',
+  text: '#f4f7fb',
+  muted: '#9eb1c1',
+  border: '#234157',
+  orange: '#f2b84b',
+  orangeSoft: '#332d20',
+  yellow: '#f2b84b',
+  yellowSoft: '#332d20',
+  red: '#ef7b72',
+  redSoft: '#42242a',
 } as const;
 
 export const Colors = {
   light: {
     text: BrandColors.text,
     background: BrandColors.background,
-    backgroundElement: '#fff2dd',
+    backgroundElement: BrandColors.surface,
     backgroundSelected: BrandColors.primarySoft,
     textSecondary: BrandColors.muted,
   },
   dark: {
-    text: '#f2f6f1',
-    background: '#111713',
-    backgroundElement: '#1d251f',
-    backgroundSelected: '#26372a',
-    textSecondary: '#aab8ad',
+    text: DarkBrandColors.text,
+    background: DarkBrandColors.background,
+    backgroundElement: DarkBrandColors.surface,
+    backgroundSelected: DarkBrandColors.primarySoft,
+    textSecondary: DarkBrandColors.muted,
   },
 } as const;
 

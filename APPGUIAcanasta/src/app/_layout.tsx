@@ -1,12 +1,13 @@
+import * as Notifications from 'expo-notifications';
 import { router, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { BrandColors } from '../constants/theme';
+import { AuthProvider } from '../contexts/auth-context';
+import { ThemeProvider } from '../contexts/theme-context';
 import { initializeDatabase } from '../database/database';
 import { seedDatabase } from '../database/seed';
 import { pushToSupabase, syncDatabase } from '../database/syncService';
-import { AuthProvider } from '../contexts/auth-context';
-import { BrandColors } from '../constants/theme';
 
 export default function RootLayout() {
   const [databaseReady, setDatabaseReady] = useState(false);
@@ -34,10 +35,10 @@ export default function RootLayout() {
   return (
     databaseReady ? (
       <AuthProvider>
-        <>
+        <ThemeProvider>
           <NotificationObserver />
           <Stack screenOptions={{ headerShown: false }} />
-        </>
+        </ThemeProvider>
       </AuthProvider>
     ) : (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: BrandColors.background }} accessibilityLiveRegion="polite">

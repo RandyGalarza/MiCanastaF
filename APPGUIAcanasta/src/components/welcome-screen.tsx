@@ -1,16 +1,17 @@
-import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppLogo } from '@/components/app-logo';
 import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
 import { QuickExpenseModal } from '@/components/quick-expense-modal';
-import { useAuth } from '@/contexts/auth-context';
 import { BrandColors } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth-context';
+import { useAppTheme } from '@/contexts/theme-context';
 import { obtenerCompras } from '@/repositories/compraRepository';
 import { obtenerMovimientosHogar } from '@/repositories/movimientoHogarRepository';
 import { obtenerPresupuestos } from '@/repositories/presupuestoRepository';
 import { Compra, MovimientoHogar, Presupuesto } from '@/types/database';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 const currency = (amount: number) => `$${Number(amount || 0).toLocaleString('es-CO')}`;
 
@@ -116,6 +117,7 @@ const COMMERCE_ACTIONS = [
 
 export function WelcomeScreen() {
   const { user, isComercio } = useAuth();
+  const { isDark, colors: BrandColors, toggleTheme } = useAppTheme();
   const userId = user?.id_usuario;
   const firstName = user?.nombre?.trim().split(/\s+/)[0];
   const [budget, setBudget] = useState<BudgetSnapshot | null>(null);
@@ -227,7 +229,7 @@ export function WelcomeScreen() {
   return (
     <>
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: BrandColors.background }]}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
@@ -240,6 +242,15 @@ export function WelcomeScreen() {
             </View>
           </View>
           <View style={styles.headerActions}>
+            <Pressable
+              onPress={toggleTheme}
+              style={({ pressed }) => [styles.themeButton, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+              accessibilityHint="Cambia la apariencia visual de la aplicación"
+            >
+              <Ionicons name={isDark ? 'sunny-outline' : 'moon-outline'} size={19} color={BrandColors.primary} />
+            </Pressable>
             <BotonLecturaVoz
               texto={user
                 ? `Hola ${firstName || 'bienvenido'} a Mi Canasta. Revisa cuánto te queda, registra gastos y organiza tu mercado.`
@@ -466,6 +477,7 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   topBar: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  themeButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 16, borderWidth: 1, borderColor: BrandColors.border, backgroundColor: BrandColors.surfaceElevated },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   brandName: { color: BrandColors.primary, fontSize: 18, fontWeight: '800' },
   brandCaption: { color: BrandColors.muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.7, marginTop: 2 },
@@ -478,15 +490,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: BrandColors.border,
-    backgroundColor: BrandColors.surface,
+    backgroundColor: BrandColors.surfaceElevated,
   },
   welcomeCard: {
     gap: 10,
     padding: 20,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: BrandColors.border,
     backgroundColor: BrandColors.surface,
+    boxShadow: '0px 10px 28px rgba(0, 0, 0, 0.16)',
   },
   welcomeIcon: {
     width: 46,
@@ -508,10 +521,10 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 17,
     marginTop: 4,
-    borderRadius: 15,
+    borderRadius: 14,
     backgroundColor: BrandColors.primary,
   },
-  primaryButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '800' },
+  primaryButtonText: { color: '#08202b', fontSize: 16, fontWeight: '800' },
   summaryCard: {
     minHeight: 180,
     alignItems: 'center',

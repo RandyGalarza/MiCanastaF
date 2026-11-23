@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
-import { openNativeDatabase } from './sqlite-driver';
 import { DATABASE_SCHEMA } from './schema';
+import { openNativeDatabase } from './sqlite-driver';
 
 export interface DatabaseConnection {
   execAsync(sql: string): Promise<void>;
@@ -59,10 +59,16 @@ class WebDatabaseAdapter implements DatabaseConnection {
       producto.pro_estado ??= producto.activo ?? 1;
       producto.codigo_barras ??= null;
     });
-    this.tables.comercios?.forEach((comercio) => {
+    this.tables.comercios?.forEach((comercio, index) => {
       comercio.com_estado ??= comercio.estado ?? 1;
-      comercio.latitud ??= null;
-      comercio.longitud ??= null;
+      const latitud = Number(comercio.latitud);
+      const longitud = Number(comercio.longitud);
+      if (!Number.isFinite(latitud) || latitud === 0) {
+        comercio.latitud = 11.5449 + (((index % 7) - 3) * 0.0025);
+      }
+      if (!Number.isFinite(longitud) || longitud === 0) {
+        comercio.longitud = -72.9072 + (((Math.floor(index / 7) % 5) - 2) * 0.003);
+      }
     });
     this.tables.listas_compra?.forEach((lista) => {
       lista.lis_estado ??= ['PENDIENTE', 'ACTIVO', '1'].includes(String(lista.estado)) ? 1 : 0;
@@ -240,6 +246,19 @@ class WebDatabaseAdapter implements DatabaseConnection {
 
       const records = this.tables[tableName] || [];
       let changes = 0;
+
+      if (setClause.includes('latitud = ?') && setClause.includes('longitud = ?') && whereClause.includes('id_comercio = ?')) {
+        const [latitud, longitud, idComercio] = paramList;
+        records.forEach((record) => {
+          if (Number(record.id_comercio) === Number(idComercio)) {
+            record.latitud = Number(latitud);
+            record.longitud = Number(longitud);
+            changes++;
+          }
+        });
+        if (changes > 0) this.saveToStorage();
+        return { lastInsertRowId: 0, changes };
+      }
 
       const setAssignments = setClause.split(',').map((assignment) => assignment.trim());
       const setParameterCount = (setClause.match(/\?/g) || []).length;

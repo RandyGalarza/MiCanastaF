@@ -1,15 +1,16 @@
-import {
-  TabList,
-  TabSlot,
-  TabTrigger,
-  TabTriggerSlotProps,
-  Tabs,
-} from 'expo-router/ui';
+import { BrandColors } from '@/constants/theme';
+import { useAuth } from '@/contexts/auth-context';
+import { useAppTheme } from '@/contexts/theme-context';
 import { Ionicons } from '@expo/vector-icons';
+import {
+    TabList,
+    TabSlot,
+    TabTrigger,
+    TabTriggerSlotProps,
+    Tabs,
+} from 'expo-router/ui';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@/contexts/auth-context';
-import { BrandColors } from '@/constants/theme';
 
 const TAB_ICONS = {
   home: 'home-outline',
@@ -22,6 +23,7 @@ const TAB_ICONS = {
 } as const;
 
 export default function AppTabs() {
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { isComercio } = useAuth();
@@ -30,7 +32,12 @@ export default function AppTabs() {
   const labelFontSize = width < 360 ? 9 : 10;
   const tabListStyle = StyleSheet.flatten([
     styles.tabList,
-    { height: 59 + bottomInset, paddingBottom: bottomInset },
+    {
+      height: 59 + bottomInset,
+      paddingBottom: bottomInset,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceElevated,
+    },
   ]);
 
   return (
@@ -72,6 +79,7 @@ interface TabButtonProps extends TabTriggerSlotProps {
 }
 
 function TabButton({ label, icon, labelFontSize, isFocused, ...props }: TabButtonProps) {
+  const { colors } = useAppTheme();
   return (
     <Pressable
       {...props}
@@ -81,13 +89,13 @@ function TabButton({ label, icon, labelFontSize, isFocused, ...props }: TabButto
       accessibilityState={{ selected: isFocused }}
       style={({ pressed }) => [
         styles.tabButton,
-        isFocused && styles.selectedTab,
+        isFocused && [styles.selectedTab, { backgroundColor: colors.primarySoft }],
         pressed && styles.pressed,
       ]}>
-      <View style={[styles.iconWrap, isFocused && styles.selectedIconWrap]}>
-        <Ionicons name={icon} size={21} color={isFocused ? BrandColors.primary : BrandColors.muted} />
+      <View style={[styles.iconWrap, isFocused && [styles.selectedIconWrap, { backgroundColor: colors.primarySoft }]]}>
+        <Ionicons name={icon} size={21} color={isFocused ? colors.primary : colors.muted} />
       </View>
-      <Text style={[styles.label, { fontSize: labelFontSize }, isFocused && styles.selectedLabel]} numberOfLines={1}>
+      <Text style={[styles.label, { fontSize: labelFontSize, color: isFocused ? colors.primary : colors.muted }, isFocused && styles.selectedLabel]} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -110,7 +118,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: BrandColors.border,
-    backgroundColor: BrandColors.surface,
+    backgroundColor: BrandColors.surfaceElevated,
+    boxShadow: '0px 8px 24px rgba(0, 0, 0, 0.28)',
   },
   tabButton: {
     flex: 1,
@@ -134,7 +143,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   selectedIconWrap: {
-    backgroundColor: '#dcebd8',
+    backgroundColor: BrandColors.primarySoft,
   },
   label: {
     color: BrandColors.muted,
