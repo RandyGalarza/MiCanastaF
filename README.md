@@ -82,7 +82,7 @@ Aplicación móvil y web guiada para la gestión, control e inteligencia de comp
    npx expo start --android
    ```
 
-5. **Habilitar Google Maps en Android:** Configura `GOOGLE_MAPS_API_KEY` en el entorno de compilación (por ejemplo, en las variables de entorno de EAS) y genera un nuevo build nativo. La clave no debe incluirse en el repositorio. iOS usa el mapa nativo de Apple.
+5. **Habilitar Google Maps en Android:** Configura `GOOGLE_MAPS_API_KEY` en el entorno de compilación (por ejemplo, en las variables de entorno de EAS) y genera un nuevo build nativo. La clave no debe incluirse en el repositorio.
 
 ## Integrantes
 
