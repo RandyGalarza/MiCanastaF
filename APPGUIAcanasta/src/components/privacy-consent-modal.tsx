@@ -29,7 +29,7 @@ export function PrivacyConsentModal({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const textoLectura =
-    'Aviso de privacidad y protección de datos según la Ley 1581 de 2012 de Colombia. Mi Canasta Familiar protege tus datos y los utiliza exclusivamente para organizar tus compras y presupuestos. Tienes derecho a conocer, corregir y eliminar tus datos en cualquier momento.';
+    'Aviso de privacidad y protección de datos según la Ley 1581 de 2012 de Colombia. Mi Canasta Familiar protege tus datos y los utiliza para organizar tus compras y presupuestos. Las direcciones de los comercios se consultan con Photon, basado en OpenStreetMap, para ubicarlos en el mapa. Tienes derecho a conocer, corregir y eliminar tus datos en cualquier momento.';
 
   return (
     <Modal
@@ -97,6 +97,10 @@ export function PrivacyConsentModal({
                 <Text style={styles.bulletPoint}>• Permitir la sincronización local y en la nube de tus listas de mercado.</Text>
                 <Text style={styles.bulletPoint}>• Estimar tus gastos y enviarte recordatorios útiles para no exceder tu presupuesto.</Text>
                 <Text style={styles.bulletPoint}>• Alimentar de manera anónima y comunitaria el comparador de precios de Riohacha.</Text>
+                <Text style={styles.sectionHeading}>Consulta de direcciones:</Text>
+                <Text style={styles.paragraph}>
+                  Al registrar o cambiar la dirección de un comercio, se envía a Photon, un servicio basado en OpenStreetMap, para obtener sus coordenadas y mostrarlo en el mapa.
+                </Text>
               </View>
             )}
 

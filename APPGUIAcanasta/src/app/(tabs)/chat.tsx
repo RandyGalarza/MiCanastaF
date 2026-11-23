@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import {
   Modal,
   Pressable,
@@ -59,6 +60,24 @@ function currency(value: number): string {
 function esSolicitudDeLista(texto: string): boolean {
   return /\b(lista|mercado|canasta)\b/i.test(texto) &&
     /\b(arma|armar|armame|crea|crear|haz|hazme|prepara|recomiend|organiza|presupuesto|seg[uú]n)\b/i.test(texto);
+}
+
+async function obtenerMensajeErrorFuncion(error: FunctionsHttpError): Promise<string> {
+  const response = error.context as Response;
+  try {
+    const body: unknown = await response.clone().json();
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'error' in body &&
+      typeof body.error === 'string'
+    ) {
+      return body.error;
+    }
+  } catch (parseError) {
+    console.warn('No se pudo leer el detalle del error de Gemini:', parseError);
+  }
+  return `El asistente respondió con un error (HTTP ${response.status}).`;
 }
 
 export default function ChatScreen() {
@@ -148,6 +167,9 @@ export default function ChatScreen() {
       });
       if (error) {
         console.error('No se pudo consultar la función Gemini:', error);
+        if (error instanceof FunctionsHttpError) {
+          throw new Error(await obtenerMensajeErrorFuncion(error));
+        }
         throw new Error('No se pudo contactar con el asistente. Verifica tu conexión y que la función `gemini-chat` esté desplegada.');
       }
       if (

@@ -4,9 +4,42 @@ import {
     COMMERCIAL_REFERENCE_PRODUCTS,
 } from './commercial-reference-products';
 import { getDatabase } from './database';
+import {
+  geocodificarDireccionComercio,
+  UBICACION_CENTRO_RIOHACHA,
+} from '../utils/comercio-geocoding';
 
 const LEGACY_DANE_DESCRIPTION_PREFIX = 'Artículo de seguimiento del IPC DANE 2018; código COICOP: ';
 const COMMERCIAL_REFERENCE_DESCRIPTION_PREFIX = 'Producto de referencia comercial orientativo; código COICOP IPC 2018: ';
+const UBICACIONES_COMERCIOS_SEMILLA: Record<string, { latitud: number; longitud: number }> = {
+  'Éxito Riohacha (Av. Los Estudiantes)': { latitud: 11.5364282, longitud: -72.9219869 },
+  'Supertiendas Olímpica Calle 15 (Centro)': { latitud: 11.537472, longitud: -72.9176156 },
+  'Jumbo Riohacha (Ex-Carrefour Viva Wajiira)': { latitud: 11.5367549, longitud: -72.9221924 },
+  'Tiendas D1 Riohacha Calle 13': { latitud: 11.5449476, longitud: -72.9099433 },
+  'Tiendas Ara Riohacha Cooperativo': { latitud: 11.5323458, longitud: -72.9088428 },
+  'Tiendas Ara Riohacha Mercado Nuevo': { latitud: 11.5282534, longitud: -72.8988635 },
+  'Granero y Abarrotes El Guajiro (Mayorista)': { latitud: 11.5282534, longitud: -72.8988635 },
+  'Tienda y Autoservicio La Bendición': { latitud: 11.5412294, longitud: -72.9151288 },
+  'Supertiendas Olímpica Guajira Plaza': UBICACION_CENTRO_RIOHACHA,
+  'Metro Cencosud Riohacha': UBICACION_CENTRO_RIOHACHA,
+  'Tiendas D1 Riohacha Av. Circunvalar': UBICACION_CENTRO_RIOHACHA,
+};
+
+async function obtenerUbicacionComercioDemo(nombre: string, direccion: string) {
+  const ubicacionSemilla = UBICACIONES_COMERCIOS_SEMILLA[nombre];
+  if (ubicacionSemilla) return ubicacionSemilla;
+  if (/^riohacha,\s*la guajira$/i.test(direccion.trim())) return UBICACION_CENTRO_RIOHACHA;
+
+  try {
+    return await geocodificarDireccionComercio(direccion);
+  } catch (error) {
+    console.warn(
+      `[Seed] No se pudo geocodificar "${nombre}". Se usará el centro de Riohacha como referencia.`,
+      error
+    );
+    return UBICACION_CENTRO_RIOHACHA;
+  }
+}
 
 const PRODUCTOS_REFERENCIA_CANASTA = COMMERCIAL_REFERENCE_PRODUCTS.filter((producto) =>
   producto.division === '01' ? esProductoComestibleOCocina(producto.name) :
@@ -91,17 +124,37 @@ export async function seedDatabase() {
     );
     const latitud = 11.5449 + (((index % 7) - 3) * 0.0025);
     const longitud = -72.9072 + (((Math.floor(index / 7) % 5) - 2) * 0.003);
+    const existingLatitude = Number(existing?.latitud);
+    const existingLongitude = Number(existing?.longitud);
+    const hasValidLocation = existing?.latitud != null && existing?.longitud != null &&
+      Number.isFinite(existingLatitude) && Number.isFinite(existingLongitude) &&
+      existingLatitude >= -90 && existingLatitude <= 90 &&
+      existingLongitude >= -180 && existingLongitude <= 180 &&
+      existingLatitude !== 0 && existingLongitude !== 0;
+    const hasLegacyGridLocation =
+      Math.abs(existingLatitude - latitud) < 0.000001 &&
+      Math.abs(existingLongitude - longitud) < 0.000001;
+    const ubicacion = await obtenerUbicacionComercioDemo(nombre, direccion);
+    const hasOldCityReference = hasValidLocation &&
+      Math.abs(existingLatitude - UBICACION_CENTRO_RIOHACHA.latitud) < 0.00001 &&
+      Math.abs(existingLongitude - UBICACION_CENTRO_RIOHACHA.longitud) < 0.00001 &&
+      (
+        Math.abs(ubicacion.latitud - UBICACION_CENTRO_RIOHACHA.latitud) >= 0.00001 ||
+        Math.abs(ubicacion.longitud - UBICACION_CENTRO_RIOHACHA.longitud) >= 0.00001
+      );
 
-    if (!existing) {
-      await db.runAsync(
-        'INSERT INTO comercios (nombre, direccion, telefono, tipo_comercio, latitud, longitud) VALUES (?, ?, ?, ?, ?, ?)',
-        [nombre, direccion, telefono, tipo, latitud, longitud]
-      );
-    } else if (!Number.isFinite(Number(existing.latitud)) || !Number.isFinite(Number(existing.longitud))) {
-      await db.runAsync(
-        'UPDATE comercios SET latitud = ?, longitud = ? WHERE id_comercio = ?',
-        [latitud, longitud, existing.id_comercio]
-      );
+    if (!existing || hasLegacyGridLocation || !hasValidLocation || hasOldCityReference) {
+      if (!existing) {
+        await db.runAsync(
+          'INSERT INTO comercios (nombre, direccion, telefono, tipo_comercio, latitud, longitud, com_estado) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [nombre, direccion, telefono, tipo, ubicacion.latitud, ubicacion.longitud, 1]
+        );
+      } else {
+        await db.runAsync(
+          'UPDATE comercios SET latitud = ?, longitud = ? WHERE id_comercio = ?',
+          [ubicacion.latitud, ubicacion.longitud, existing.id_comercio]
+        );
+      }
     }
   }
 
@@ -378,7 +431,13 @@ export async function seedDatabase() {
     [14, 18, 'Pasta de tomate 170g', 'Lata', 'Demo', 'Pasta de tomate para salsas', 3200],
   ];
 
-  const preciosLocales = await db.getAllAsync<any>('SELECT * FROM precios');
+  const preciosLocales = await db.getAllAsync<{
+    id_precio: number;
+    id_producto: number;
+    id_comercio: number;
+    precio: number;
+    disponible: number;
+  }>('SELECT * FROM precios');
 
   const productosRiohachaCanasta = productosRiohacha.filter(([categoria, , nombre]) => {
     if ([1, 2, 3, 4, 5, 6, 7, 9, 12, 13, 14].includes(categoria)) return true;
@@ -519,29 +578,86 @@ export async function seedDatabase() {
       'SELECT id_producto, id_comercio FROM productos WHERE pro_estado = 1'
     );
     for (const [index, producto] of productosActivos.entries()) {
-      const preciosProducto = await db.getAllAsync<{ id_precio: number }>(
-        'SELECT id_precio FROM precios WHERE id_producto = ? AND disponible = 1 AND precio > 0',
-        [producto.id_producto]
+      const preciosProducto = preciosLocales.filter((precio) =>
+        Number(precio.id_producto) === Number(producto.id_producto) &&
+        Number(precio.disponible ?? 1) === 1 &&
+        Number(precio.precio) > 0
       );
       if (preciosProducto.length === 0) {
         const precioReferencia = 3000 + ((index * 137) % 17000);
-        await db.runAsync(
-          'INSERT INTO precios (id_producto, id_comercio, precio, disponible) VALUES (?, ?, ?, 1)',
-          [producto.id_producto, producto.id_comercio ?? comercioReferenciaId, precioReferencia]
+        const idComercio = producto.id_comercio ?? comercioReferenciaId;
+        const result = await db.runAsync(
+          'INSERT INTO precios (id_producto, id_comercio, precio, disponible) VALUES (?, ?, ?, ?)',
+          [producto.id_producto, idComercio, precioReferencia, 1]
         );
+        preciosLocales.push({
+          id_precio: result.lastInsertRowId,
+          id_producto: producto.id_producto,
+          id_comercio: idComercio,
+          precio: precioReferencia,
+          disponible: 1,
+        });
       }
     }
   }
 
-  const comerciosActivosAuditados = await db.getAllAsync<{ id_comercio: number; latitud: number | null; longitud: number | null }>(
-    'SELECT * FROM comercios'
+  const comerciosActivosParaUbicar = await db.getAllAsync<{
+    id_comercio: number;
+    nombre: string;
+    direccion: string | null;
+    latitud: number | null;
+    longitud: number | null;
+  }>(
+    'SELECT id_comercio, nombre, direccion, latitud, longitud FROM comercios WHERE com_estado = 1'
   );
-  const comerciosSinUbicacion = comerciosActivosAuditados.filter((comercio) =>
-    !Number.isFinite(Number(comercio.latitud)) || !Number.isFinite(Number(comercio.longitud))
-    || Number(comercio.latitud) === 0 || Number(comercio.longitud) === 0
+  for (const comercio of comerciosActivosParaUbicar) {
+    const latitudActual = Number(comercio.latitud);
+    const longitudActual = Number(comercio.longitud);
+    const tieneUbicacionValida = comercio.latitud != null && comercio.longitud != null &&
+      Number.isFinite(latitudActual) && latitudActual >= -90 && latitudActual <= 90 &&
+      Number.isFinite(longitudActual) && longitudActual >= -180 && longitudActual <= 180 &&
+      latitudActual !== 0 && longitudActual !== 0;
+    if (tieneUbicacionValida) continue;
+
+    let ubicacion = UBICACION_CENTRO_RIOHACHA;
+    if (comercio.direccion?.trim()) {
+      try {
+        ubicacion = await geocodificarDireccionComercio(comercio.direccion);
+      } catch (error) {
+        console.warn(
+          `[Seed] No se pudo ubicar "${comercio.nombre}". Se asignará el centro de Riohacha como referencia.`,
+          error
+        );
+      }
+    } else {
+      console.warn(
+        `[Seed] "${comercio.nombre}" no tiene dirección; se asignará el centro de Riohacha como referencia.`
+      );
+    }
+
+    await db.runAsync(
+      'UPDATE comercios SET latitud = ?, longitud = ? WHERE id_comercio = ?',
+      [ubicacion.latitud, ubicacion.longitud, comercio.id_comercio]
+    );
+  }
+
+  const comerciosActivosAuditados = await db.getAllAsync<{
+    id_comercio: number;
+    latitud: number | null;
+    longitud: number | null;
+  }>(
+    'SELECT id_comercio, latitud, longitud FROM comercios WHERE com_estado = 1'
   );
-  if (comerciosSinUbicacion.length > 0) {
-    throw new Error(`Hay ${comerciosSinUbicacion.length} comercios activos sin ubicación válida.`);
+  const comerciosConCoordenadasInvalidas = comerciosActivosAuditados.filter((comercio) => {
+    const latitud = Number(comercio.latitud);
+    const longitud = Number(comercio.longitud);
+    return comercio.latitud == null || comercio.longitud == null ||
+      !Number.isFinite(latitud) || !Number.isFinite(longitud) ||
+      latitud < -90 || latitud > 90 || longitud < -180 || longitud > 180 ||
+      latitud === 0 || longitud === 0;
+  });
+  if (comerciosConCoordenadasInvalidas.length > 0) {
+    throw new Error(`Hay ${comerciosConCoordenadasInvalidas.length} comercios activos sin una ubicación válida.`);
   }
 
   const productosActivosAuditados = await db.getAllAsync<{ id_producto: number }>(

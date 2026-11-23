@@ -29,6 +29,7 @@ import {
   eliminarCategoria,
 } from '@/repositories/categoriaRepository';
 import { Toast, ToastType } from '@/components/toast';
+import { GeocodingError } from '@/utils/comercio-geocoding';
 
 type AdminTab = 'comercios' | 'usuarios' | 'categorias';
 
@@ -216,7 +217,10 @@ export default function AdminScreen() {
       await cargarDatos();
     } catch (e) {
       console.error(e);
-      showToast('Error al guardar los datos del comercio', 'error');
+      showToast(
+        e instanceof GeocodingError ? e.message : 'Error al guardar los datos del comercio',
+        'error'
+      );
     } finally {
       setGuardando(false);
     }
@@ -707,12 +711,14 @@ export default function AdminScreen() {
                 onChangeText={setComTelefono}
                 accessibilityLabel="Teléfono del comercio"
               />
-              <Text style={styles.fieldLabel}>Ubicación para el mapa (opcional)</Text>
+              <Text style={styles.fieldLabel}>Coordenadas (opcional)</Text>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Latitud" keyboardType="decimal-pad" value={comLatitud} onChangeText={setComLatitud} accessibilityLabel="Latitud del comercio" />
                 <TextInput style={[styles.modalInput, { flex: 1 }]} placeholder="Longitud" keyboardType="decimal-pad" value={comLongitud} onChangeText={setComLongitud} accessibilityLabel="Longitud del comercio" />
               </View>
-              <Text style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>Consulta las coordenadas en un mapa para que las familias puedan encontrar esta tienda.</Text>
+              <Text style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
+                Si dejas ambas vacías, el punto se obtiene de la dirección. Esta se consulta con Photon (OpenStreetMap).
+              </Text>
             </ScrollView>
 
             <View style={styles.modalFooter}>

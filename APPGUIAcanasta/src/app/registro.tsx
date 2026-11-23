@@ -20,6 +20,7 @@ import { Comercio, RolUsuario } from '../types/database';
 import { supabase } from '../database/supabaseClient';
 import { useAuth } from '../contexts/auth-context';
 import { pushToSupabase } from '../database/syncService';
+import { geocodificarDireccionComercio, GeocodingError } from '../utils/comercio-geocoding';
 
 export default function RegistroScreen() {
   const router = useRouter();
@@ -80,6 +81,11 @@ export default function RegistroScreen() {
       return;
     }
 
+    if (rol === 'comercio' && esNuevoComercio && !nuevaDireccionComercio.trim()) {
+      showToast('Escribe la dirección del comercio para ubicarlo en el mapa.', 'error');
+      return;
+    }
+
     if (contrasena !== confirmarContrasena) {
       showToast('Las contraseñas no coinciden.', 'error');
       return;
@@ -102,6 +108,10 @@ export default function RegistroScreen() {
         showToast('El correo ya se encuentra registrado.', 'error');
         return;
       }
+
+      const ubicacionNuevoComercio = rol === 'comercio' && esNuevoComercio && !existingUser
+        ? await geocodificarDireccionComercio(nuevaDireccionComercio)
+        : undefined;
 
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
@@ -131,7 +141,9 @@ export default function RegistroScreen() {
             nuevoNombreComercio.trim(),
             nuevaDireccionComercio.trim() || undefined,
             telefono.trim() || undefined,
-            nuevoTipoComercio.trim() || 'Comercio'
+            nuevoTipoComercio.trim() || 'Comercio',
+            ubicacionNuevoComercio?.latitud,
+            ubicacionNuevoComercio?.longitud
           );
         } else {
           comercioIdParaUsuario = idComercioSeleccionado;
@@ -166,7 +178,10 @@ export default function RegistroScreen() {
       setTimeout(() => router.replace('/login'), 2500);
     } catch (error) {
       console.error(error);
-      showToast('No se pudo completar el registro.', 'error');
+      showToast(
+        error instanceof GeocodingError ? error.message : 'No se pudo completar el registro.',
+        'error'
+      );
     } finally {
       setCargando(false);
     }
@@ -321,14 +336,18 @@ export default function RegistroScreen() {
                     accessibilityLabel="Tipo de negocio"
                   />
 
-                  <Text style={styles.fieldLabel}>Dirección del Local</Text>
+                  <Text style={styles.fieldLabel}>Dirección del Local *</Text>
                   <TextInput
                     style={styles.modalInput}
-                    placeholder="Ej. Carrera 10 # 25-10"
+                    placeholder="Ej. Carrera 10 # 25-10, Riohacha"
                     value={nuevaDireccionComercio}
                     onChangeText={setNuevaDireccionComercio}
                     accessibilityLabel="Dirección del comercio"
+                    accessibilityHint="Campo obligatorio. Se usa para mostrar el comercio en el mapa."
                   />
+                  <Text style={styles.geocodingHint}>
+                    La dirección se consulta con Photon (OpenStreetMap) para encontrar el punto del local en el mapa.
+                  </Text>
                 </View>
               )}
             </View>
@@ -671,6 +690,12 @@ const styles = StyleSheet.create({
     color: '#334155',
     marginTop: 6,
     marginBottom: 3,
+  },
+  geocodingHint: {
+    color: '#64748b',
+    fontSize: 11,
+    marginTop: 5,
+    lineHeight: 16,
   },
   modalInput: {
     borderWidth: 1,
