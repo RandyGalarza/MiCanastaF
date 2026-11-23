@@ -1,7 +1,6 @@
 # 🧺 Mi Canasta Familiar
 
-Aplicación móvil y web guiada para la gestión, control e inteligencia de compras de la canasta familiar. Este documento describe las funciones, configuración y limitaciones de la app; la vista general del repositorio está en [`README.md`](../README.md).
-
+Aplicación móvil y web guiada para la gestión, control e inteligencia de compras de la canasta familiar. Este documento describe las funciones, configuración y limitaciones de la app.
 ---
 
 
