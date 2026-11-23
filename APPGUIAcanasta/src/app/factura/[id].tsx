@@ -3,7 +3,12 @@ import { router, Link, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@/contexts/auth-context';
-import { InformacionPagoCompra, obtenerCompra, obtenerInformacionPagoCompra } from '@/repositories/compraRepository';
+import {
+  InformacionPagoCompra,
+  obtenerCompra,
+  obtenerDireccionEntregaCompra,
+  obtenerInformacionPagoCompra,
+} from '@/repositories/compraRepository';
 import { Compra, DetalleCompra } from '@/types/database';
 import { generarPdfFactura } from '@/utils/invoice-pdf';
 import { ProductImage } from '@/components/product-image';
@@ -17,6 +22,9 @@ export default function FacturaScreen() {
   const [purchase, setPurchase] = useState<Compra | null>(null);
   const [loading, setLoading] = useState(true);
   const [payment, setPayment] = useState<InformacionPagoCompra | null>(null);
+  const [deliveryAddress, setDeliveryAddress] = useState<string | null>(null);
+  const [deliveryAddressLoading, setDeliveryAddressLoading] = useState(false);
+  const [deliveryAddressError, setDeliveryAddressError] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -38,6 +46,7 @@ export default function FacturaScreen() {
         const result = await obtenerCompra(Number(id), user.id_usuario);
         if (active) {
           setPurchase(result);
+          setDeliveryAddressLoading(Boolean(result));
           if (!result) setError('Esta factura no existe o no pertenece a tu cuenta.');
         }
       } catch (err) {
@@ -50,6 +59,33 @@ export default function FacturaScreen() {
     void loadPurchase();
     return () => { active = false; };
   }, [id, user]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadDeliveryAddress() {
+      if (!purchase || !user) {
+        setDeliveryAddress(null);
+        setDeliveryAddressLoading(false);
+        setDeliveryAddressError('');
+        return;
+      }
+
+      setDeliveryAddress(null);
+      setDeliveryAddressLoading(true);
+      setDeliveryAddressError('');
+      try {
+        const address = await obtenerDireccionEntregaCompra(purchase.id_compra, user.id_usuario);
+        if (active) setDeliveryAddress(address);
+      } catch (err) {
+        console.error('No se pudo cargar la dirección guardada para la compra:', err);
+        if (active) setDeliveryAddressError('No se pudo cargar la dirección guardada en este dispositivo.');
+      } finally {
+        if (active) setDeliveryAddressLoading(false);
+      }
+    }
+    void loadDeliveryAddress();
+    return () => { active = false; };
+  }, [purchase, user]);
 
   useEffect(() => {
     let active = true;
@@ -81,7 +117,7 @@ export default function FacturaScreen() {
   }, [purchase, user]);
 
   const downloadPdf = async () => {
-    if (!purchase || !user || pdfBusy) return;
+    if (!purchase || !user || pdfBusy || deliveryAddressLoading) return;
     setPdfBusy(true);
     setPdfError('');
     try {
@@ -89,7 +125,7 @@ export default function FacturaScreen() {
         nombre: `${user.nombre} ${user.apellido}`,
         correo: user.correo,
         telefono: user.telefono,
-      }, payment ?? undefined);
+      }, payment ?? undefined, deliveryAddress ?? undefined);
     } catch (err) {
       console.error('No se pudo generar o compartir el PDF:', err);
       setPdfError(
@@ -149,6 +185,19 @@ export default function FacturaScreen() {
             />
           </View>
 
+          {deliveryAddress ? (
+            <View style={styles.infoCard}>
+              <Text style={styles.sectionTitle} accessibilityRole="header">Dirección anotada para esta compra</Text>
+              <Text style={styles.addressText}>{deliveryAddress}</Text>
+              <Text style={styles.addressDisclaimer}>Guardada solo en este dispositivo. La app no coordina ni confirma envíos.</Text>
+            </View>
+          ) : deliveryAddressError ? (
+            <View style={styles.paymentError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+              <Ionicons name="alert-circle-outline" size={17} color="#b91c1c" />
+              <Text style={styles.errorText}>{deliveryAddressError}</Text>
+            </View>
+          ) : null}
+
           <View style={styles.itemsCard}>
             <Text style={styles.sectionTitle} accessibilityRole="header">Productos comprados</Text>
             {purchase.detalles.map((item, index) => <InvoiceItem key={`${item.id_producto}-${index}`} item={item} />)}
@@ -191,15 +240,15 @@ export default function FacturaScreen() {
           {pdfError ? <View style={styles.errorBanner} accessibilityRole="alert" accessibilityLiveRegion="polite"><Ionicons name="alert-circle-outline" size={17} color="#b91c1c" /><Text style={styles.errorText}>{pdfError}</Text></View> : null}
           <Pressable
             onPress={() => void downloadPdf()}
-            disabled={pdfBusy}
-            style={[styles.pdfButton, pdfBusy && styles.disabledButton]}
+            disabled={pdfBusy || deliveryAddressLoading}
+            style={[styles.pdfButton, (pdfBusy || deliveryAddressLoading) && styles.disabledButton]}
             accessibilityRole="button"
-            accessibilityLabel={pdfBusy ? 'Preparando factura en PDF' : Platform.OS === 'web' ? 'Abrir factura para imprimir o guardar como PDF' : 'Generar y compartir factura en PDF'}
+            accessibilityLabel={pdfBusy ? 'Preparando factura en PDF' : deliveryAddressLoading ? 'Consultando dirección guardada' : Platform.OS === 'web' ? 'Abrir factura para imprimir o guardar como PDF' : 'Generar y compartir factura en PDF'}
             accessibilityHint={Platform.OS === 'web' ? 'Abre la factura para imprimirla o guardarla como PDF en el navegador' : 'Genera un documento PDF y abre las opciones para compartirlo'}
-            accessibilityState={{ disabled: pdfBusy, busy: pdfBusy }}
+            accessibilityState={{ disabled: pdfBusy || deliveryAddressLoading, busy: pdfBusy || deliveryAddressLoading }}
           >
-            {pdfBusy ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="download-outline" size={19} color="#ffffff" />}
-            <Text style={styles.pdfButtonText}>{pdfBusy ? 'Preparando factura…' : Platform.OS === 'web' ? 'Imprimir o guardar como PDF' : 'Generar y compartir PDF'}</Text>
+            {pdfBusy || deliveryAddressLoading ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="download-outline" size={19} color="#ffffff" />}
+            <Text style={styles.pdfButtonText}>{pdfBusy ? 'Preparando factura…' : deliveryAddressLoading ? 'Consultando dirección…' : Platform.OS === 'web' ? 'Imprimir o guardar como PDF' : 'Generar y compartir PDF'}</Text>
           </Pressable>
         </>
       )}
@@ -266,6 +315,8 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   infoLabel: { flex: 1, color: '#64748b', fontSize: 11 },
   infoValue: { flex: 1.5, color: '#334155', fontSize: 11, fontWeight: '600', textAlign: 'right' },
+  addressText: { color: '#334155', fontSize: 12, lineHeight: 18 },
+  addressDisclaimer: { color: '#64748b', fontSize: 10, lineHeight: 15 },
   paymentLoading: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, paddingVertical: 4 },
   paymentError: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 4, padding: 10, borderRadius: 11, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca' },
   itemsCard: { padding: 15, borderRadius: 20, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e7ece7' },

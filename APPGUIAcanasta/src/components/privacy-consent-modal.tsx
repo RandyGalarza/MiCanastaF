@@ -29,7 +29,7 @@ export function PrivacyConsentModal({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const textoLectura =
-    'Aviso de privacidad y protección de datos según la Ley 1581 de 2012 de Colombia. Mi Canasta Familiar protege tus datos y los utiliza para organizar tus compras y presupuestos. Las direcciones de los comercios se consultan con Photon, basado en OpenStreetMap, para ubicarlos en el mapa. Tienes derecho a conocer, corregir y eliminar tus datos en cualquier momento.';
+    'Aviso de privacidad y protección de datos según la Ley 1581 de 2012 de Colombia. Mi Canasta Familiar protege tus datos y los utiliza para organizar tus compras y presupuestos. Las direcciones de los comercios se consultan con Photon, basado en OpenStreetMap, para ubicarlos en el mapa. Puedes solicitar la eliminación de tu cuenta; si administras un hogar compartido o registraste movimientos compartidos, primero debes resolver esos datos para no afectar a otros miembros.';
 
   return (
     <Modal
@@ -127,7 +127,7 @@ export function PrivacyConsentModal({
                   <Ionicons name="trash-bin-outline" size={18} color="#b91c1c" />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.rightTitle}>Revocar y suprimir</Text>
-                    <Text style={styles.rightDesc}>Pedir la eliminación total e irreversible de tu cuenta y registros.</Text>
+                    <Text style={styles.rightDesc}>Eliminar tu cuenta y registros personales. Los datos compartidos deben resolverse primero para proteger a los demás miembros.</Text>
                   </View>
                 </View>
               </View>
@@ -138,9 +138,9 @@ export function PrivacyConsentModal({
                 <View style={styles.dangerBanner}>
                   <Ionicons name="alert-circle" size={24} color="#b91c1c" />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.dangerTitle}>Eliminación total e irreversible</Text>
+                    <Text style={styles.dangerTitle}>Eliminar cuenta y datos personales</Text>
                     <Text style={styles.dangerText}>
-                      Esta acción borrará de inmediato tu perfil, listas de mercado, presupuestos y facturas tanto de este dispositivo como de la nube de Supabase.
+                      Se eliminarán tu cuenta de acceso, perfil y datos personales de la nube y de este dispositivo. Para no borrar información de otras familias, la acción se bloqueará si eres responsable de un hogar compartido o registraste movimientos allí.
                     </Text>
                   </View>
                 </View>
@@ -153,7 +153,7 @@ export function PrivacyConsentModal({
                     {confirmDelete && <Ionicons name="checkmark" size={14} color="#fff" />}
                   </View>
                   <Text style={styles.checkboxLabel}>
-                    Comprendo que perderé todos mis datos y deseo continuar.
+                    Entiendo que perderé mis datos personales y que el borrado se bloqueará si afecta información compartida.
                   </Text>
                 </Pressable>
 
@@ -170,7 +170,7 @@ export function PrivacyConsentModal({
                   ) : (
                     <>
                       <Ionicons name="trash-outline" size={18} color="#fff" />
-                      <Text style={styles.deleteButtonText}>Eliminar mi cuenta definitivamente</Text>
+                      <Text style={styles.deleteButtonText}>Eliminar mi cuenta y mis datos</Text>
                     </>
                   )}
                 </TouchableOpacity>

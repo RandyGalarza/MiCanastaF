@@ -34,6 +34,51 @@ export interface InformacionPagoCompra {
   referencia: string | null;
 }
 
+export async function guardarDireccionEntregaCompra(
+  id_compra: number,
+  id_usuario: number,
+  direccion: string
+): Promise<void> {
+  if (!Number.isInteger(id_compra) || id_compra <= 0 || !Number.isInteger(id_usuario) || id_usuario <= 0) {
+    throw new Error('La compra seleccionada no es válida.');
+  }
+
+  const normalizedAddress = direccion.trim().replace(/\s+/g, ' ');
+  if (!normalizedAddress || normalizedAddress.length > 240) {
+    throw new Error('La dirección debe tener entre 1 y 240 caracteres.');
+  }
+
+  const db = await getDatabase();
+  const purchase = await db.getFirstAsync<{ id_compra: number }>(
+    'SELECT id_compra FROM compras WHERE id_compra = ? AND id_usuario = ?',
+    [id_compra, id_usuario]
+  );
+  if (!purchase) throw new Error('La compra no existe o no pertenece a esta cuenta.');
+
+  await db.runAsync(
+    `INSERT OR REPLACE INTO direcciones_entrega
+      (id_compra, id_usuario, direccion, fecha_actualizacion)
+     VALUES (?, ?, ?, ?)`,
+    [id_compra, id_usuario, normalizedAddress, new Date().toISOString()]
+  );
+}
+
+export async function obtenerDireccionEntregaCompra(
+  id_compra: number,
+  id_usuario: number
+): Promise<string | null> {
+  if (!Number.isInteger(id_compra) || id_compra <= 0 || !Number.isInteger(id_usuario) || id_usuario <= 0) {
+    throw new Error('La compra seleccionada no es válida.');
+  }
+
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ direccion: string }>(
+    'SELECT direccion FROM direcciones_entrega WHERE id_compra = ? AND id_usuario = ?',
+    [id_compra, id_usuario]
+  );
+  return row?.direccion ?? null;
+}
+
 interface PreparedPurchase {
   detalles: DetalleCompra[];
   subtotal: number;

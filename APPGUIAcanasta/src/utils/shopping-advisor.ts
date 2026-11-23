@@ -1,10 +1,13 @@
 import { ProductoParaRecomendacion } from '../repositories/productoRepository';
+import { PrioridadProducto } from '../repositories/prioridadProductoRepository';
 
 export interface ProductoContextoAsistente extends ProductoParaRecomendacion {
   promedio_calificacion: number;
   cantidad_calificaciones: number;
+  calificacion_demo: number;
   unidades_vendidas: number;
   compras_registradas: number;
+  prioridad_hogar: PrioridadProducto | null;
 }
 
 export interface ProductoListaRecomendada {

@@ -18,7 +18,7 @@ interface AuthContextValue {
   isAdmin: boolean;
   isComercio: boolean;
   signIn: (user: Usuario) => void;
-  signOut: () => Promise<void>;
+  signOut: (scope?: 'global' | 'local' | 'others') => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -76,10 +76,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
       signIn: (usuario) => {
         setUser(toAuthUser(usuario));
       },
-      signOut: async () => {
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
-        setUser(null);
+      signOut: async (scope) => {
+        try {
+          const { error } = scope
+            ? await supabase.auth.signOut({ scope })
+            : await supabase.auth.signOut();
+          if (error) throw error;
+        } finally {
+          setUser(null);
+        }
       },
     }),
     [user]

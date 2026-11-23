@@ -23,6 +23,25 @@ const UBICACIONES_COMERCIOS_SEMILLA: Record<string, { latitud: number; longitud:
   'Supertiendas Olímpica Guajira Plaza': UBICACION_CENTRO_RIOHACHA,
   'Metro Cencosud Riohacha': UBICACION_CENTRO_RIOHACHA,
   'Tiendas D1 Riohacha Av. Circunvalar': UBICACION_CENTRO_RIOHACHA,
+  'Supermercado Demo - La Guajira': { latitud: 11.5434, longitud: -72.9074 },
+  'Minimercado Demo - Centro': { latitud: 11.5418, longitud: -72.9079 },
+  'Minimercado Demo - Cooperativo': { latitud: 11.5322, longitud: -72.9084 },
+  'Tienda de barrio Demo - Arriba': { latitud: 11.5410, longitud: -72.9090 },
+  'Tienda de barrio Demo - 15 de Mayo': { latitud: 11.5350, longitud: -72.9115 },
+  'Tienda de barrio Demo - San Martín': { latitud: 11.5394, longitud: -72.9121 },
+  'Autoservicio Demo - La Esperanza': { latitud: 11.5279, longitud: -72.9094 },
+  'Granero Demo - Mercado Nuevo': { latitud: 11.5288, longitud: -72.8992 },
+  'Frutas y Verduras Demo - La Huerta': { latitud: 11.5364, longitud: -72.9092 },
+  'Carnicería Demo - El Buen Corte': { latitud: 11.5372, longitud: -72.9045 },
+  'Pescadería Demo - Costa Guajira': { latitud: 11.5415, longitud: -72.9038 },
+  'Panadería Demo - El Trigal': { latitud: 11.5431, longitud: -72.9018 },
+  'Tienda de descuento Demo - Ahorra Más': { latitud: 11.5305, longitud: -72.9062 },
+  'Supermercado Demo - Buen Precio': { latitud: 11.5367, longitud: -72.9135 },
+  'Droguería Demo - Salud y Hogar': { latitud: 11.5432, longitud: -72.9042 },
+  'Tienda de mascotas Demo - Patitas': { latitud: 11.5324, longitud: -72.9075 },
+  'Lácteos Demo - Frescos del Campo': { latitud: 11.5379, longitud: -72.9125 },
+  'Distribuidora Demo - La Canasta': { latitud: 11.5318, longitud: -72.9140 },
+  'Tienda de conveniencia Demo - 24 Horas': { latitud: 11.5391, longitud: -72.9062 },
 };
 
 async function obtenerUbicacionComercioDemo(nombre: string, direccion: string) {
@@ -96,30 +115,35 @@ export async function seedDatabase() {
     ['Tiendas Ara Riohacha Cooperativo', 'Calle 27A # 12-40, Barrio Cooperativo', '3009123013', 'Tienda de Descuento'],
     ['Granero y Abarrotes El Guajiro (Mayorista)', 'Mercado Nuevo, Pabellón de Granos Local 14', '3015557788', 'Mayorista / Granero'],
     ['Tienda y Autoservicio La Bendición', 'Calle 14B # 20-35, Riohacha', '3128901234', 'Tienda de Barrio'],
-    ['Supermercado Demo - La Guajira', 'Riohacha, La Guajira', null, 'Supermercado (demo)'],
-    ['Minimercado Demo - Centro', 'Riohacha, La Guajira', null, 'Minimercado (demo)'],
-    ['Minimercado Demo - Cooperativo', 'Riohacha, La Guajira', null, 'Minimercado (demo)'],
-    ['Tienda de barrio Demo - Arriba', 'Riohacha, La Guajira', null, 'Tienda de Barrio (demo)'],
-    ['Tienda de barrio Demo - 15 de Mayo', 'Riohacha, La Guajira', null, 'Tienda de Barrio (demo)'],
-    ['Tienda de barrio Demo - San Martín', 'Riohacha, La Guajira', null, 'Tienda de Barrio (demo)'],
-    ['Autoservicio Demo - La Esperanza', 'Riohacha, La Guajira', null, 'Autoservicio (demo)'],
-    ['Granero Demo - Mercado Nuevo', 'Riohacha, La Guajira', null, 'Granero (demo)'],
-    ['Frutas y Verduras Demo - La Huerta', 'Riohacha, La Guajira', null, 'Frutería y Verdulería (demo)'],
-    ['Carnicería Demo - El Buen Corte', 'Riohacha, La Guajira', null, 'Carnicería (demo)'],
-    ['Pescadería Demo - Costa Guajira', 'Riohacha, La Guajira', null, 'Pescadería (demo)'],
-    ['Panadería Demo - El Trigal', 'Riohacha, La Guajira', null, 'Panadería (demo)'],
-    ['Tienda de descuento Demo - Ahorra Más', 'Riohacha, La Guajira', null, 'Tienda de Descuento (demo)'],
-    ['Supermercado Demo - Buen Precio', 'Riohacha, La Guajira', null, 'Supermercado (demo)'],
-    ['Droguería Demo - Salud y Hogar', 'Riohacha, La Guajira', null, 'Droguería (demo)'],
-    ['Tienda de mascotas Demo - Patitas', 'Riohacha, La Guajira', null, 'Tienda de Mascotas (demo)'],
-    ['Lácteos Demo - Frescos del Campo', 'Riohacha, La Guajira', null, 'Lácteos (demo)'],
-    ['Distribuidora Demo - La Canasta', 'Riohacha, La Guajira', null, 'Distribuidora (demo)'],
-    ['Tienda de conveniencia Demo - 24 Horas', 'Riohacha, La Guajira', null, 'Tienda de Conveniencia (demo)'],
+    ['Supermercado Demo - La Guajira', 'Calle 7 # 6-24, Centro, Riohacha, La Guajira (referencia demo)', null, 'Supermercado (demo)'],
+    ['Minimercado Demo - Centro', 'Carrera 8 # 4-18, Centro, Riohacha, La Guajira (referencia demo)', null, 'Minimercado (demo)'],
+    ['Minimercado Demo - Cooperativo', 'Calle 27 # 12-36, Cooperativo, Riohacha, La Guajira (referencia demo)', null, 'Minimercado (demo)'],
+    ['Tienda de barrio Demo - Arriba', 'Calle 14 # 7-22, Barrio Arriba, Riohacha, La Guajira (referencia demo)', null, 'Tienda de Barrio (demo)'],
+    ['Tienda de barrio Demo - 15 de Mayo', 'Calle 22 # 7-31, 15 de Mayo, Riohacha, La Guajira (referencia demo)', null, 'Tienda de Barrio (demo)'],
+    ['Tienda de barrio Demo - San Martín', 'Carrera 12 # 15-46, San Martín, Riohacha, La Guajira (referencia demo)', null, 'Tienda de Barrio (demo)'],
+    ['Autoservicio Demo - La Esperanza', 'Calle 36 # 9-28, La Esperanza, Riohacha, La Guajira (referencia demo)', null, 'Autoservicio (demo)'],
+    ['Granero Demo - Mercado Nuevo', 'Calle 12 # 8-17, Mercado Nuevo, Riohacha, La Guajira (referencia demo)', null, 'Granero (demo)'],
+    ['Frutas y Verduras Demo - La Huerta', 'Carrera 9 # 21-40, Riohacha, La Guajira (referencia demo)', null, 'Frutería y Verdulería (demo)'],
+    ['Carnicería Demo - El Buen Corte', 'Calle 19 # 14-22, Riohacha, La Guajira (referencia demo)', null, 'Carnicería (demo)'],
+    ['Pescadería Demo - Costa Guajira', 'Calle 13 # 6-14, Riohacha, La Guajira (referencia demo)', null, 'Pescadería (demo)'],
+    ['Panadería Demo - El Trigal', 'Carrera 15 # 8-33, Riohacha, La Guajira (referencia demo)', null, 'Panadería (demo)'],
+    ['Tienda de descuento Demo - Ahorra Más', 'Calle 31 # 15-20, Riohacha, La Guajira (referencia demo)', null, 'Tienda de Descuento (demo)'],
+    ['Supermercado Demo - Buen Precio', 'Carrera 6 # 20-40, Riohacha, La Guajira (referencia demo)', null, 'Supermercado (demo)'],
+    ['Droguería Demo - Salud y Hogar', 'Calle 10 # 13-27, Riohacha, La Guajira (referencia demo)', null, 'Droguería (demo)'],
+    ['Tienda de mascotas Demo - Patitas', 'Carrera 10 # 28-15, Riohacha, La Guajira (referencia demo)', null, 'Tienda de Mascotas (demo)'],
+    ['Lácteos Demo - Frescos del Campo', 'Calle 18 # 5-23, Riohacha, La Guajira (referencia demo)', null, 'Lácteos (demo)'],
+    ['Distribuidora Demo - La Canasta', 'Carrera 7 # 30-11, Riohacha, La Guajira (referencia demo)', null, 'Distribuidora (demo)'],
+    ['Tienda de conveniencia Demo - 24 Horas', 'Calle 15 # 10-25, Riohacha, La Guajira (referencia demo)', null, 'Tienda de Conveniencia (demo)'],
   ];
 
   for (const [index, [nombre, direccion, telefono, tipo]] of comerciosDemo.entries()) {
-    const existing = await db.getFirstAsync<any>(
-      'SELECT id_comercio, latitud, longitud FROM comercios WHERE nombre = ?',
+    const existing = await db.getFirstAsync<{
+      id_comercio: number;
+      direccion: string | null;
+      latitud: number | null;
+      longitud: number | null;
+    }>(
+      'SELECT id_comercio, direccion, latitud, longitud FROM comercios WHERE nombre = ?',
       [nombre]
     );
     const latitud = 11.5449 + (((index % 7) - 3) * 0.0025);
@@ -142,8 +166,13 @@ export async function seedDatabase() {
         Math.abs(ubicacion.latitud - UBICACION_CENTRO_RIOHACHA.latitud) >= 0.00001 ||
         Math.abs(ubicacion.longitud - UBICACION_CENTRO_RIOHACHA.longitud) >= 0.00001
       );
+    const existingAddress = existing?.direccion?.trim() ?? '';
+    const hasCityOnlyAddress = !existingAddress ||
+      /^(?:riohacha(?:,\s*la guajira)?|la guajira(?:,\s*riohacha)?)(?:,\s*colombia)?$/i.test(existingAddress);
+    const shouldUpdateDemoAddress = Boolean(existing && /\bdemo\b/i.test(nombre) && hasCityOnlyAddress);
+    const shouldUpdateLocation = hasLegacyGridLocation || !hasValidLocation || hasOldCityReference;
 
-    if (!existing || hasLegacyGridLocation || !hasValidLocation || hasOldCityReference) {
+    if (!existing || shouldUpdateDemoAddress || shouldUpdateLocation) {
       if (!existing) {
         await db.runAsync(
           'INSERT INTO comercios (nombre, direccion, telefono, tipo_comercio, latitud, longitud, com_estado) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -151,8 +180,13 @@ export async function seedDatabase() {
         );
       } else {
         await db.runAsync(
-          'UPDATE comercios SET latitud = ?, longitud = ? WHERE id_comercio = ?',
-          [ubicacion.latitud, ubicacion.longitud, existing.id_comercio]
+          'UPDATE comercios SET direccion = ?, latitud = ?, longitud = ? WHERE id_comercio = ?',
+          [
+            shouldUpdateDemoAddress ? direccion : existing.direccion,
+            shouldUpdateLocation ? ubicacion.latitud : existingLatitude,
+            shouldUpdateLocation ? ubicacion.longitud : existingLongitude,
+            existing.id_comercio,
+          ]
         );
       }
     }

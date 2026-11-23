@@ -6,8 +6,13 @@ import { useAuth } from '@/contexts/auth-context';
 import { mostrarAlerta } from '@/utils/alerts';
 import { PrivacyConsentModal } from '@/components/privacy-consent-modal';
 import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
-import { getDatabase } from '@/database/database';
 import { supabase } from '@/database/supabaseClient';
+import {
+  eliminarDatosLocalesUsuario,
+  prepararEliminacionDatosLocal,
+} from '@/repositories/cuentaRepository';
+import { obtenerDatosExportables } from '@/repositories/exportarDatosRepository';
+import { exportarArchivoJson } from '../../utils/exportarDatos';
 
 function formatRegistrationDate(value: string): string {
   if (!value) return 'No disponible';
@@ -26,35 +31,75 @@ export default function CuentaScreen() {
   const { user, isAdmin, isComercio, signOut } = useAuth();
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [exportingData, setExportingData] = useState(false);
+
+  const exportPersonalData = async () => {
+    if (!user || exportingData) return;
+    setExportingData(true);
+    try {
+      const data = await obtenerDatosExportables(user.id_usuario);
+      const date = new Date().toISOString().slice(0, 10);
+      await exportarArchivoJson(data, `mi-canasta-datos-${date}.json`);
+      mostrarAlerta(
+        'Copia local lista',
+        'El archivo JSON contiene los datos de tu cuenta guardados en este dispositivo.'
+      );
+    } catch (error) {
+      console.error('No se pudieron exportar los datos personales:', error);
+      mostrarAlerta(
+        'No se pudieron exportar los datos',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.'
+      );
+    } finally {
+      setExportingData(false);
+    }
+  };
 
   const handleDeleteAccount = async () => {
-    if (!user) return;
+    if (!user || deletingAccount) return;
     setDeletingAccount(true);
     try {
-      const db = await getDatabase();
-      // 1. Eliminar datos asociados del usuario localmente
-      await db.runAsync('DELETE FROM listas_compra WHERE id_usuario = ?', [user.id_usuario]);
-      await db.runAsync('DELETE FROM presupuestos WHERE id_usuario = ?', [user.id_usuario]);
-      await db.runAsync('DELETE FROM compras WHERE id_usuario = ?', [user.id_usuario]);
-      await db.runAsync('DELETE FROM billeteras WHERE id_usuario = ?', [user.id_usuario]);
-      await db.runAsync('DELETE FROM movimientos_hogar WHERE id_usuario = ?', [user.id_usuario]);
-      await db.runAsync('DELETE FROM reportes_precio WHERE id_usuario = ?', [user.id_usuario]);
-      await db.runAsync('DELETE FROM usuarios WHERE id_usuario = ?', [user.id_usuario]);
-
-      // 2. Eliminar de Supabase en la nube
+      const localDeletion = await prepararEliminacionDatosLocal(user.id_usuario);
+      const { error } = await supabase.rpc('eliminar_mi_cuenta');
+      if (error) throw new Error(error.message);
       try {
-        await supabase.from('usuarios').delete().eq('id_usuario', user.id_usuario);
-      } catch (errCloud) {
-        console.warn('Error borrando usuario en la nube:', errCloud);
+        await eliminarDatosLocalesUsuario(localDeletion);
+      } catch (localError) {
+        console.error('La cuenta se eliminó de la nube, pero no se pudo borrar su copia local:', localError);
+        setPrivacyModalVisible(false);
+        let sessionWarning = '';
+        try {
+          await signOut('local');
+        } catch (signOutError) {
+          console.error('No se pudo cerrar la sesión después de eliminar la cuenta:', signOutError);
+          sessionWarning = ' Cierra la app y vuelve a abrirla para limpiar la sesión local.';
+        }
+        router.replace('/login');
+        mostrarAlerta(
+          'Cuenta eliminada en la nube',
+          `No se pudo borrar la copia de este dispositivo. Borra los datos locales de la app.${sessionWarning}`
+        );
+        return;
       }
-
       setPrivacyModalVisible(false);
-      mostrarAlerta('Cuenta eliminada', 'Tus datos han sido borrados por completo conforme a la Ley 1581.');
-      await signOut();
+      let sessionWarning = '';
+      try {
+        await signOut('local');
+      } catch (signOutError) {
+        console.error('No se pudo cerrar la sesión después de eliminar la cuenta:', signOutError);
+        sessionWarning = ' Si la sesión sigue abierta, cierra la app y vuelve a abrirla.';
+      }
       router.replace('/login');
-    } catch (e) {
-      console.error(e);
-      mostrarAlerta('Error', 'No se pudo eliminar la cuenta. Inténtalo de nuevo.');
+      mostrarAlerta(
+        'Cuenta eliminada',
+        `Se borraron tu perfil y tus datos personales de la nube y de este dispositivo.${sessionWarning}`
+      );
+    } catch (error) {
+      console.error('No se pudo eliminar la cuenta:', error);
+      mostrarAlerta(
+        'No se pudo eliminar la cuenta',
+        error instanceof Error ? error.message : 'Inténtalo de nuevo.'
+      );
     } finally {
       setDeletingAccount(false);
     }
@@ -276,6 +321,24 @@ export default function CuentaScreen() {
 
       <View style={styles.detailsCard}>
         <Pressable
+          onPress={() => void exportPersonalData()}
+          disabled={exportingData}
+          style={styles.actionRow}
+          accessibilityRole="button"
+          accessibilityLabel={exportingData ? 'Preparando exportación de datos' : 'Exportar mis datos locales'}
+          accessibilityState={{ disabled: exportingData, busy: exportingData }}
+        >
+          <View style={[styles.actionIcon, { backgroundColor: '#e0f2fe' }]}>
+            <Ionicons name="download-outline" size={20} color="#0369a1" />
+          </View>
+          <View style={styles.actionCopy}>
+            <Text style={styles.actionTitle}>Exportar mis datos locales</Text>
+            <Text style={styles.actionDescription}>Copia JSON de los datos guardados en este dispositivo</Text>
+          </View>
+          <Ionicons name={exportingData ? 'hourglass-outline' : 'chevron-forward'} size={18} color="#94a3b8" />
+        </Pressable>
+        <View style={styles.detailsDivider} />
+        <Pressable
           onPress={() => setPrivacyModalVisible(true)}
           style={styles.actionRow}
           accessibilityRole="button"
@@ -302,7 +365,7 @@ export default function CuentaScreen() {
           </View>
           <View style={styles.actionCopy}>
             <Text style={[styles.actionTitle, { color: '#dc2626' }]}>Eliminar mi cuenta y datos</Text>
-            <Text style={styles.actionDescription}>Borrado total e irreversible de tu información</Text>
+            <Text style={styles.actionDescription}>Elimina tus datos personales y protege los datos del hogar compartido</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#fca5a5" />
         </Pressable>

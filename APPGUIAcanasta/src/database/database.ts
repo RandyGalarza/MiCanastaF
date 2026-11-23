@@ -11,7 +11,7 @@ export interface DatabaseConnection {
 }
 
 const WEB_DB_KEY = 'canasta_familiar_db';
-const WEB_DB_VERSION = '10';
+const WEB_DB_VERSION = '11';
 
 // Adaptador web con persistencia en localStorage versionada
 class WebDatabaseAdapter implements DatabaseConnection {
@@ -166,6 +166,7 @@ class WebDatabaseAdapter implements DatabaseConnection {
         usuarios: 'id_usuario',
         presupuestos: 'id_presupuesto',
         categorias: 'id_categoria',
+        prioridades_producto: 'id_prioridad',
         productos: 'id_producto',
         calificaciones_productos: 'id_calificacion',
         comercios: 'id_comercio',
@@ -173,6 +174,7 @@ class WebDatabaseAdapter implements DatabaseConnection {
         listas_compra: 'id_lista',
         detalles_lista_compra: 'id_detalle',
         compras: 'id_compra',
+        direcciones_entrega: 'id_compra',
         billeteras: 'id_billetera',
         movimientos_saldo: 'id_movimiento',
         movimientos_hogar: 'id_movimiento_hogar',
@@ -309,7 +311,12 @@ class WebDatabaseAdapter implements DatabaseConnection {
       const whereClause = deleteMatch[2];
       const beforeCount = (this.tables[tableName] || []).length;
 
-      if (whereClause.includes('id_categoria =')) {
+      if (whereClause.includes('id_usuario =') && whereClause.includes('id_producto =')) {
+        const [userId, productId] = paramList.map(Number);
+        this.tables[tableName] = (this.tables[tableName] || []).filter(
+          (row) => Number(row.id_usuario) !== userId || Number(row.id_producto) !== productId
+        );
+      } else if (whereClause.includes('id_categoria =')) {
         const idVal = paramList[0];
         this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_categoria !== idVal);
       } else if (whereClause.includes('id_movimiento_hogar =')) {
@@ -337,6 +344,15 @@ class WebDatabaseAdapter implements DatabaseConnection {
       } else if (whereClause.includes('id_lista =')) {
         const idVal = paramList[0];
         this.tables[tableName] = (this.tables[tableName] || []).filter((r) => r.id_lista !== idVal);
+      } else {
+        const equalityConditions = [...whereClause.matchAll(/([a-z_]\w*)\s*=\s*\?/gi)];
+        if (equalityConditions.length > 0 && equalityConditions.length === paramList.length) {
+          this.tables[tableName] = (this.tables[tableName] || []).filter((row) =>
+            !equalityConditions.every(
+              (condition, index) => String(row[condition[1]]) === String(paramList[index])
+            )
+          );
+        }
       }
 
       const changes = beforeCount - (this.tables[tableName] || []).length;

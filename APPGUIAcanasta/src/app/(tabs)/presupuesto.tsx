@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Link, useFocusEffect } from 'expo-router';
+import { Link, router, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 import {
   obtenerCompras,
@@ -17,6 +17,7 @@ import { actualizarPresupuesto, crearPresupuesto, obtenerPresupuestos } from '@/
 import { obtenerMovimientosHogar } from '@/repositories/movimientoHogarRepository';
 import { Compra, MovimientoHogar, Presupuesto, VentaComercio } from '@/types/database';
 import { QuickExpenseModal } from '@/components/quick-expense-modal';
+import { DireccionEntregaModal } from '@/components/direccion-entrega-modal';
 import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
 import { programarRecordatorioDiario } from '@/utils/notifications';
 
@@ -78,6 +79,7 @@ export default function PresupuestoScreen() {
   const [walletBalance, setWalletBalance] = useState(0);
   const [walletMovements, setWalletMovements] = useState<MovimientoSaldo[]>([]);
   const [pendingPayments, setPendingPayments] = useState<PagoPendiente[]>([]);
+  const [pendingDeliveryPurchaseId, setPendingDeliveryPurchaseId] = useState<number | null>(null);
   const [topUpVisible, setTopUpVisible] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('');
   const [topUpError, setTopUpError] = useState('');
@@ -304,8 +306,9 @@ export default function PresupuestoScreen() {
     setWalletSaving(true);
     setWalletActionError('');
     try {
-      await simularPagoReferencia(payment.id_pago, user.id_usuario);
+      const purchaseId = await simularPagoReferencia(payment.id_pago, user.id_usuario);
       await cargar();
+      setPendingDeliveryPurchaseId(purchaseId);
     } catch (error) {
       console.error('No se pudo confirmar el pago de prueba:', error);
       setWalletActionError(error instanceof Error ? error.message : 'No se pudo confirmar el pago.');
@@ -842,6 +845,16 @@ export default function PresupuestoScreen() {
       onAmountChange={setTopUpAmount}
       onSave={() => void recargarSaldo()}
     />
+    <DireccionEntregaModal
+      key={pendingDeliveryPurchaseId ?? 'hidden'}
+      visible={pendingDeliveryPurchaseId !== null}
+      purchaseId={pendingDeliveryPurchaseId}
+      userId={user?.id_usuario ?? null}
+      onContinue={(purchaseId) => {
+        setPendingDeliveryPurchaseId(null);
+        router.push({ pathname: '/factura/[id]', params: { id: String(purchaseId) } });
+      }}
+    />
     </>
   );
 }
@@ -1045,12 +1058,22 @@ function BudgetFormModal({
   onChange: (field: keyof BudgetDraft, value: string) => void;
   onAmountChange: (value: string) => void;
 }) {
-  const setPreset = (preset: 'month' | 'fortnight') => {
+  const setPreset = (preset: 'week' | 'fortnight' | 'month') => {
     const now = new Date();
     if (preset === 'month') {
       const range = monthRange(now);
       onChange('fecha_inicio', range.fecha_inicio);
       onChange('fecha_fin', range.fecha_fin);
+      onChange('nombre', 'Mercado del mes');
+      return;
+    }
+
+    if (preset === 'week') {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+      const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+      onChange('fecha_inicio', localDate(start));
+      onChange('fecha_fin', localDate(end));
+      onChange('nombre', 'Mercado de la semana');
       return;
     }
 
@@ -1058,6 +1081,7 @@ function BudgetFormModal({
     const lastDay = now.getDate() <= 15 ? 15 : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     onChange('fecha_inicio', localDate(new Date(now.getFullYear(), now.getMonth(), firstDay)));
     onChange('fecha_fin', localDate(new Date(now.getFullYear(), now.getMonth(), lastDay)));
+    onChange('nombre', 'Mercado de la quincena');
   };
 
   return (
@@ -1108,6 +1132,10 @@ function BudgetFormModal({
               <Text style={styles.dateFormatHint}>Formato AAAA-MM-DD</Text>
             </View>
             <View style={styles.presetRow}>
+              <Pressable onPress={() => setPreset('week')} style={styles.presetButton} accessibilityRole="button" accessibilityLabel="Usar el periodo de esta semana">
+                <Ionicons name="calendar-outline" size={15} color="#168344" />
+                <Text style={styles.presetButtonText}>Esta semana</Text>
+              </Pressable>
               <Pressable onPress={() => setPreset('month')} style={styles.presetButton} accessibilityRole="button" accessibilityLabel="Usar el periodo de este mes">
                 <Ionicons name="calendar-outline" size={15} color="#168344" />
                 <Text style={styles.presetButtonText}>Este mes</Text>

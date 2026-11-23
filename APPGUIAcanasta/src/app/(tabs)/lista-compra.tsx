@@ -16,6 +16,7 @@ import {
   ItemListaCompra,
 } from '@/repositories/listacompraRepository';
 import {
+  obtenerCompras,
   crearReferenciaPagoDemostracion,
   obtenerPagosPendientes,
   obtenerSaldoUsuario,
@@ -23,14 +24,23 @@ import {
   simularPagoReferencia,
 } from '@/repositories/compraRepository';
 import type { PagoPendiente } from '@/repositories/compraRepository';
+import { obtenerMovimientosHogar } from '@/repositories/movimientoHogarRepository';
 import { obtenerProductos } from '@/repositories/productoRepository';
 import { obtenerPresupuestos } from '@/repositories/presupuestoRepository';
 import { ListaCompra, Producto, Presupuesto } from '@/types/database';
 import { displayPrice, getDemoDiscount } from '@/utils/demo-prices';
 import { ProductImage } from '@/components/product-image';
 import { BotonLecturaVoz } from '@/components/boton-lectura-voz';
+import { DireccionEntregaModal } from '@/components/direccion-entrega-modal';
 
 const currency = (amount: number) => `$${Number(amount || 0).toLocaleString('es-CO')}`;
+
+function dateOfPurchase(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
 
 export default function ListaCompraScreen() {
   const { user } = useAuth();
@@ -46,11 +56,13 @@ export default function ListaCompraScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [pendingDeliveryPurchaseId, setPendingDeliveryPurchaseId] = useState<number | null>(null);
   const [walletBalance, setWalletBalance] = useState(0);
   const [paymentError, setPaymentError] = useState('');
   const [pendingPayments, setPendingPayments] = useState<PagoPendiente[]>([]);
   const [selectedPayment, setSelectedPayment] = useState<PagoPendiente | null>(null);
   const [presupuestoActivo, setPresupuestoActivo] = useState<Presupuesto | null>(null);
+  const [gastoPeriodoPresupuesto, setGastoPeriodoPresupuesto] = useState(0);
   const [cameraVisible, setCameraVisible] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [barcodeResult, setBarcodeResult] = useState('');
@@ -63,23 +75,43 @@ export default function ListaCompraScreen() {
       setSelectedListId(null);
       setPendingPayments([]);
       setPresupuestoActivo(null);
+      setGastoPeriodoPresupuesto(0);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError('');
     try {
-      const [userLists, catalog, userPendingPayments, userBudgets] = await Promise.all([
+      const [userLists, catalog, userPendingPayments, userBudgets, userPurchases, householdMovements] = await Promise.all([
         obtenerListasCompra(user.id_usuario),
         obtenerProductos(),
         obtenerPagosPendientes(user.id_usuario),
         obtenerPresupuestos(user.id_usuario),
+        obtenerCompras(user.id_usuario),
+        obtenerMovimientosHogar(user.id_usuario),
       ]);
       setLists(userLists);
       setProducts(catalog.filter((product) => product.pro_estado === 1));
       setPendingPayments(userPendingPayments);
       const activeBudget = userBudgets.find((b) => b.pre_estado === 1) || userBudgets[0] || null;
       setPresupuestoActivo(activeBudget);
+      const budgetPurchases = activeBudget
+        ? userPurchases.filter((purchase) => {
+          const date = dateOfPurchase(purchase.fecha_compra);
+          return date >= activeBudget.fecha_inicio && date <= activeBudget.fecha_fin;
+        })
+        : [];
+      const budgetExpenses = activeBudget
+        ? householdMovements.filter((movement) =>
+          movement.tipo === 'gasto' &&
+          movement.fecha >= activeBudget.fecha_inicio &&
+          movement.fecha <= activeBudget.fecha_fin
+        )
+        : [];
+      setGastoPeriodoPresupuesto(
+        budgetPurchases.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0) +
+        budgetExpenses.reduce((sum, movement) => sum + Number(movement.monto || 0), 0)
+      );
       const routeId = typeof id === 'string' ? id : undefined;
       const requestedId = routeId !== appliedRouteId.current && routeId
         ? Number(routeId)
@@ -225,7 +257,7 @@ export default function ListaCompraScreen() {
       if (!listName) throw new Error('Selecciona una lista válida para continuar.');
       const purchaseId = await pagarCompraConSaldo(user.id_usuario, selectedListId, listName, items);
       setPaymentModalVisible(false);
-      router.push({ pathname: '/factura/[id]', params: { id: String(purchaseId) } });
+      setPendingDeliveryPurchaseId(purchaseId);
     } catch (err) {
       console.error('No se pudo pagar con saldo:', err);
       setPaymentError(err instanceof Error ? err.message : 'No se pudo completar el pago con saldo.');
@@ -267,7 +299,7 @@ export default function ListaCompraScreen() {
       setPaymentModalVisible(false);
       setSelectedPayment(null);
       await loadLists();
-      router.push({ pathname: '/factura/[id]', params: { id: String(purchaseId) } });
+      setPendingDeliveryPurchaseId(purchaseId);
     } catch (err) {
       console.error('No se pudo completar el pago de prueba:', err);
       setPaymentError(err instanceof Error ? err.message : 'No se pudo completar el pago de prueba.');
@@ -298,6 +330,9 @@ export default function ListaCompraScreen() {
 
   const checkedCount = items.filter((item) => item.comprado === 1).length;
   const total = items.reduce((sum, item) => sum + (displayPrice(item.nombre, item.precio) || 0) * Number(item.cantidad), 0);
+  const saldoDespuesDeLista = presupuestoActivo
+    ? Number(presupuestoActivo.monto) - gastoPeriodoPresupuesto - total
+    : null;
   const checkedTotal = items
     .filter((item) => item.comprado === 1)
     .reduce((sum, item) => sum + (displayPrice(item.nombre, item.precio) || 0) * Number(item.cantidad), 0);
@@ -478,9 +513,9 @@ export default function ListaCompraScreen() {
             {presupuestoActivo && (
               <View style={[
                 styles.liveBudgetCard,
-                total > presupuestoActivo.monto
+                saldoDespuesDeLista != null && saldoDespuesDeLista < 0
                   ? styles.budgetOverlimit
-                  : total >= presupuestoActivo.monto * 0.8
+                  : saldoDespuesDeLista != null && saldoDespuesDeLista <= presupuestoActivo.monto * 0.2
                   ? styles.budgetWarning
                   : styles.budgetOk,
               ]}>
@@ -491,9 +526,9 @@ export default function ListaCompraScreen() {
                         styles.semaforoDot,
                         {
                           backgroundColor:
-                            total > presupuestoActivo.monto
+                            saldoDespuesDeLista != null && saldoDespuesDeLista < 0
                               ? '#ef4444'
-                              : total >= presupuestoActivo.monto * 0.8
+                              : saldoDespuesDeLista != null && saldoDespuesDeLista <= presupuestoActivo.monto * 0.2
                               ? '#f59e0b'
                               : '#10b981',
                         },
@@ -503,39 +538,35 @@ export default function ListaCompraScreen() {
                       </Text>
                     </View>
                     <Text style={styles.liveBudgetValues}>
-                      Límite: {currency(presupuestoActivo.monto)} · Estimado: {currency(total)}
+                      Gastado: {currency(gastoPeriodoPresupuesto)} · Esta lista: {currency(total)}
                     </Text>
                   </View>
                   <BotonLecturaVoz
-                    texto={`Tu lista suma un total estimado de ${total} pesos. Tu presupuesto asignado es de ${presupuestoActivo.monto} pesos. ${
-                      total > presupuestoActivo.monto
-                        ? 'Alerta: Te has pasado del dinero que tenías planeado.'
-                        : total >= presupuestoActivo.monto * 0.8
-                        ? 'Atención: Has alcanzado el 80% de tu presupuesto.'
-                        : 'Estás dentro de tu presupuesto sin problemas.'
+                    texto={`Tu presupuesto es de ${presupuestoActivo.monto} pesos. Has registrado ${gastoPeriodoPresupuesto} pesos de gastos en el periodo y esta lista suma ${total} pesos. ${
+                      saldoDespuesDeLista != null && saldoDespuesDeLista < 0
+                        ? `La lista supera el saldo restante por ${Math.abs(saldoDespuesDeLista)} pesos.`
+                        : `Después de esta lista te quedarían ${saldoDespuesDeLista} pesos para el resto del periodo.`
                     }`}
                     etiqueta="Voz"
                     size="pequeno"
                   />
                 </View>
 
-                {total > presupuestoActivo.monto ? (
+                {saldoDespuesDeLista != null && saldoDespuesDeLista < 0 ? (
                   <View style={styles.alertBannerDanger}>
                     <Ionicons name="warning" size={16} color="#b91c1c" />
                     <Text style={styles.alertBannerDangerText}>
-                      ¡Te pasaste por {currency(total - presupuestoActivo.monto)}! Considera ajustar cantidades.
+                      Esta lista supera el saldo del periodo por {currency(Math.abs(saldoDespuesDeLista))}. Considera ajustar cantidades.
                     </Text>
                   </View>
-                ) : total >= presupuestoActivo.monto * 0.8 ? (
+                ) : saldoDespuesDeLista != null && saldoDespuesDeLista <= presupuestoActivo.monto * 0.2 ? (
                   <View style={styles.alertBannerWarning}>
                     <Ionicons name="alert-circle" size={16} color="#b45309" />
-                    <Text style={styles.alertBannerWarningText}>
-                      Ya usaste el {Math.round((total / presupuestoActivo.monto) * 100)}% de tu monto planeado.
-                    </Text>
+                    <Text style={styles.alertBannerWarningText}>Tras esta lista te quedarían {currency(saldoDespuesDeLista)} para el resto del periodo.</Text>
                   </View>
                 ) : (
                   <Text style={styles.alertBannerOkText}>
-                    Te quedan {currency(presupuestoActivo.monto - total)} disponibles para esta compra.
+                    Te quedarían {currency(saldoDespuesDeLista ?? 0)} para el resto del periodo.
                   </Text>
                 )}
               </View>
@@ -652,6 +683,16 @@ export default function ListaCompraScreen() {
           </View>
         </View>
       </Modal>
+      <DireccionEntregaModal
+        key={pendingDeliveryPurchaseId ?? 'hidden'}
+        visible={pendingDeliveryPurchaseId !== null}
+        purchaseId={pendingDeliveryPurchaseId}
+        userId={user?.id_usuario ?? null}
+        onContinue={(purchaseId) => {
+          setPendingDeliveryPurchaseId(null);
+          router.push({ pathname: '/factura/[id]', params: { id: String(purchaseId) } });
+        }}
+      />
     </ScrollView>
   );
 }

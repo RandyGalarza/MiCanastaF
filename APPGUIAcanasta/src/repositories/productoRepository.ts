@@ -6,6 +6,42 @@ export interface ProductoParaRecomendacion extends Producto {
   categoria: string;
 }
 
+export interface PrecioEncontradoCatalogo {
+  id_producto: number;
+  nombre: string;
+  unidad_medida: string;
+  marca: string | null;
+  precio: number;
+}
+
+export async function buscarPreciosDeCatalogo(terminos: string[]): Promise<PrecioEncontradoCatalogo[]> {
+  const palabras = [...new Set(terminos
+    .map((termino) => termino.trim().toLocaleLowerCase('es-CO'))
+    .filter((termino) => /^[a-záéíóúüñ0-9]+$/i.test(termino))
+    .map((termino) => termino.length > 4 && termino.endsWith('s') ? termino.slice(0, -1) : termino))]
+    .slice(0, 4);
+  if (palabras.length === 0) return [];
+
+  const db = await getDatabase();
+  const condiciones = palabras.map(() => 'LOWER(p.nombre) LIKE ?').join(' AND ');
+  const parametros = palabras.map((palabra) => `%${palabra}%`);
+  return db.getAllAsync<PrecioEncontradoCatalogo>(
+    `
+    SELECT p.id_producto, p.nombre, p.unidad_medida, p.marca, MIN(pr.precio) AS precio
+    FROM productos p
+    JOIN precios pr ON pr.id_producto = p.id_producto
+    WHERE p.pro_estado = 1
+      AND pr.disponible = 1
+      AND pr.precio > 0
+      AND ${condiciones}
+    GROUP BY p.id_producto, p.nombre, p.unidad_medida, p.marca
+    ORDER BY p.nombre ASC
+    LIMIT 6
+    `,
+    parametros
+  );
+}
+
 export async function crearProducto(
   id_categoria: number,
   id_comercio: number,

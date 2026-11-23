@@ -44,7 +44,8 @@ function normalizeBuyer(buyer: string | CompradorFactura): CompradorFactura {
 export function crearHtmlFactura(
   compra: Compra,
   comprador: string | CompradorFactura,
-  pago?: InformacionPagoCompra
+  pago?: InformacionPagoCompra,
+  direccionEntrega?: string
 ): string {
   const buyer = normalizeBuyer(comprador);
   const rows = compra.detalles.map((item) => {
@@ -71,6 +72,9 @@ export function crearHtmlFactura(
   const paymentMethod = escapeHtml(pago?.metodo || 'No disponible en el registro');
   const paymentReference = pago?.referencia
     ? `<p><strong>Referencia de pago:</strong> ${escapeHtml(pago.referencia)}</p>`
+    : '';
+  const deliveryAddress = direccionEntrega?.trim()
+    ? `<section class="panel"><h3>Dirección anotada para esta compra</h3><p>${escapeHtml(direccionEntrega.trim())}</p><p class="legal">Guardada localmente. La app no coordina ni confirma envíos.</p></section>`
     : '';
   const stores = storeNames.length > 0
     ? storeNames.map(escapeHtml).join(' · ')
@@ -161,6 +165,7 @@ export function crearHtmlFactura(
         <div class="summary-item"><span class="summary-label">Pago registrado como</span><span class="summary-value">${paymentMethod}</span></div>
       </div>
       <section class="panel"><h3>Comercios incluidos</h3><p>${stores}</p>${paymentReference}</section>
+      ${deliveryAddress}
 
       <h3 style="margin-top:14px">Detalle de productos</h3>
       <table><thead><tr><th>Producto</th><th>Comercio / unidad</th><th class="numeric">Cant.</th><th>Precio unitario</th><th>Descuento</th><th class="numeric">Subtotal</th></tr></thead><tbody>${rows}</tbody></table>
@@ -182,9 +187,10 @@ export function crearHtmlFactura(
 export async function generarPdfFactura(
   compra: Compra,
   comprador: string | CompradorFactura,
-  pago?: InformacionPagoCompra
+  pago?: InformacionPagoCompra,
+  direccionEntrega?: string
 ): Promise<void> {
-  const html = crearHtmlFactura(compra, comprador, pago);
+  const html = crearHtmlFactura(compra, comprador, pago, direccionEntrega);
   if (Platform.OS === 'web') {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {

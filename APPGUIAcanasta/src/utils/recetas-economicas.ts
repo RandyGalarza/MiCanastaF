@@ -11,7 +11,12 @@ type RecipeDefinition = {
 };
 
 export type RecetaEconomica = Omit<RecipeDefinition, 'presupuestoPorPorcion' | 'ingredientes'> & {
-  ingredientes: { producto: ProductoParaRecomendacion; cantidad: string; costoEstimado: number }[];
+  ingredientes: {
+    producto: ProductoParaRecomendacion;
+    cantidad: string;
+    costoEstimado: number;
+    disponibleEnCasa: boolean;
+  }[];
   costoEstimado: number;
 };
 
@@ -98,10 +103,12 @@ function normalize(value: string): string {
 
 export function recomendarRecetasEconomicas(
   catalog: ProductoParaRecomendacion[],
-  presupuesto: number
+  presupuesto: number,
+  inventario: string[] = []
 ): RecetaEconomica[] {
   if (!Number.isSafeInteger(presupuesto) || presupuesto <= 0) return [];
 
+  const inventarioNormalizado = inventario.map(normalize).filter(Boolean);
   const normalizedCatalog = catalog.map((product) => ({
     product,
     name: normalize(`${product.nombre} ${product.marca ?? ''}`),
@@ -112,10 +119,15 @@ export function recomendarRecetasEconomicas(
       const searchTerm = normalize(ingredient.buscar);
       const product = normalizedCatalog.find((item) => item.name.includes(searchTerm))?.product;
       if (!product || !Number.isFinite(product.precio) || product.precio <= 0) return null;
+      const productName = normalize(product.nombre);
+      const disponibleEnCasa = inventarioNormalizado.some((name) =>
+        name === productName || (name.length >= 5 && productName.startsWith(name))
+      );
       return {
         producto: product,
         cantidad: ingredient.cantidad,
-        costoEstimado: Math.round(product.precio),
+        costoEstimado: disponibleEnCasa ? 0 : Math.round(product.precio),
+        disponibleEnCasa,
       };
     });
 
@@ -125,7 +137,9 @@ export function recomendarRecetasEconomicas(
 
     return [{
       ...recipe,
-      ingredientes: ingredients.filter((ingredient): ingredient is NonNullable<typeof ingredient> => ingredient !== null),
+      ingredientes: ingredients.filter(
+        (ingredient): ingredient is NonNullable<typeof ingredient> => ingredient !== null
+      ),
       costoEstimado,
     }];
   });

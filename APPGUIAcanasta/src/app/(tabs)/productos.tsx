@@ -8,6 +8,11 @@ import {
     obtenerResumenCalificaciones,
     ResumenCalificacionProducto,
 } from '@/repositories/calificacionProductoRepository';
+import {
+  guardarPrioridadProducto,
+  obtenerPrioridadesProductos,
+  PrioridadProducto,
+} from '@/repositories/prioridadProductoRepository';
 import { obtenerCategorias } from '@/repositories/categoriaRepository';
 import { obtenerComercios } from '@/repositories/comercioRepository';
 import {
@@ -66,6 +71,12 @@ const UNIDADES_COMUNES = [
   'Docena',
   'Otro',
 ] as const;
+
+const PRIORIDADES_HOGAR: { value: PrioridadProducto; label: string }[] = [
+  { value: 'basico', label: 'Básico' },
+  { value: 'importante', label: 'Importante' },
+  { value: 'puede_esperar', label: 'Puede esperar' },
+];
 
 type OrdenProductos = 'relevancia' | 'nombre' | 'precio_asc' | 'precio_desc';
 const PRODUCT_NAME_COLLATOR = new Intl.Collator('es', { sensitivity: 'base' });
@@ -136,7 +147,9 @@ export default function ProductosScreen() {
   const [comercios, setComercios] = useState<Comercio[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [calificaciones, setCalificaciones] = useState<Record<number, ResumenCalificacionProducto>>({});
+  const [prioridadesHogar, setPrioridadesHogar] = useState<Record<number, PrioridadProducto>>({});
   const [calificandoProducto, setCalificandoProducto] = useState<number | null>(null);
+  const [priorizandoProducto, setPriorizandoProducto] = useState<number | null>(null);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState('');
   const [filtrosVisibles, setFiltrosVisibles] = useState(false);
@@ -219,40 +232,44 @@ export default function ProductosScreen() {
   const cargarDatos = useCallback(async () => {
     try {
       setCargando(true);
-      const [prods, coms, cats, ratings] = await Promise.all([
+      const [prods, coms, cats, ratings, priorities] = await Promise.all([
         obtenerProductos(),
         obtenerComercios(),
         obtenerCategorias(),
         obtenerResumenCalificaciones(user?.id_usuario),
+        user ? obtenerPrioridadesProductos(user.id_usuario) : Promise.resolve({}),
       ]);
       setProductos(prods || []);
       setComercios(coms || []);
       setCategorias(cats || []);
       setCalificaciones(ratings);
+      setPrioridadesHogar(priorities);
     } catch (error) {
       console.error(error);
       showToast('Error cargando los productos', 'error');
     } finally {
       setCargando(false);
     }
-  }, [user?.id_usuario]);
+  }, [user]);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
         setCargando(true);
-        const [prods, coms, cats, ratings] = await Promise.all([
+        const [prods, coms, cats, ratings, priorities] = await Promise.all([
           obtenerProductos(),
           obtenerComercios(),
           obtenerCategorias(),
           obtenerResumenCalificaciones(user?.id_usuario),
+          user ? obtenerPrioridadesProductos(user.id_usuario) : Promise.resolve({}),
         ]);
         if (active) {
           setProductos(prods || []);
           setComercios(coms || []);
           setCategorias(cats || []);
           setCalificaciones(ratings);
+          setPrioridadesHogar(priorities);
           if (cats && cats.length > 0) {
             setCategoriaSeleccionada(cats[0].id_categoria);
           }
@@ -270,7 +287,7 @@ export default function ProductosScreen() {
     return () => {
       active = false;
     };
-  }, [user?.id_usuario]);
+  }, [user]);
 
   const calificarProducto = async (id_producto: number, puntuacion: number) => {
     if (!user) {
@@ -287,6 +304,24 @@ export default function ProductosScreen() {
       showToast(error instanceof Error ? error.message : 'No se pudo guardar la calificación', 'error');
     } finally {
       setCalificandoProducto(null);
+    }
+  };
+
+  const cambiarPrioridadHogar = async (id_producto: number, prioridad: PrioridadProducto) => {
+    if (!user) {
+      showToast('Inicia sesión para guardar las prioridades de tu hogar.', 'info');
+      return;
+    }
+
+    try {
+      setPriorizandoProducto(id_producto);
+      await guardarPrioridadProducto(user.id_usuario, id_producto, prioridad);
+      setPrioridadesHogar((current) => ({ ...current, [id_producto]: prioridad }));
+    } catch (error) {
+      console.error('No se pudo guardar la prioridad del producto:', error);
+      showToast(error instanceof Error ? error.message : 'No se pudo guardar la prioridad.', 'error');
+    } finally {
+      setPriorizandoProducto(null);
     }
   };
 
@@ -994,7 +1029,9 @@ export default function ProductosScreen() {
                       <View style={styles.trustBadge}>
                         <Ionicons name="shield-checkmark" size={13} color="#15803d" />
                         <Text style={styles.trustBadgeText}>
-                          {rep.confirmaciones} {rep.confirmaciones === 1 ? 'confirmación' : 'confirmaciones'}
+                          {rep.confirmaciones === 0
+                            ? 'Sin confirmaciones de otros usuarios'
+                            : `${rep.confirmaciones} ${rep.confirmaciones === 1 ? 'confirmación' : 'confirmaciones'} de otros usuarios`}
                         </Text>
                       </View>
                       <Pressable
@@ -1685,6 +1722,38 @@ export default function ProductosScreen() {
                         <Text style={styles.demoRatingText}>
                           Calificación de demostración: {demoRating.toFixed(1)}/5
                         </Text>
+                      </View>
+                      <View style={styles.priorityCard}>
+                        <Text style={styles.priorityTitle}>Prioridad de tu hogar</Text>
+                        <Text style={styles.priorityHint}>La eliges tú; no es una recomendación nutricional.</Text>
+                        {user ? (
+                          <View style={styles.priorityOptions}>
+                            {PRIORIDADES_HOGAR.map(({ value, label }) => {
+                              const selected = prioridadesHogar[item.id_producto] === value;
+                              return (
+                                <Pressable
+                                  key={value}
+                                  onPress={() => void cambiarPrioridadHogar(item.id_producto, value)}
+                                  disabled={priorizandoProducto === item.id_producto}
+                                  style={[
+                                    styles.priorityOption,
+                                    selected && styles.priorityOptionSelected,
+                                    priorizandoProducto === item.id_producto && styles.disabledButton,
+                                  ]}
+                                  accessibilityRole="radio"
+                                  accessibilityLabel={`${item.nombre}: ${label}`}
+                                  accessibilityState={{ selected, disabled: priorizandoProducto === item.id_producto }}
+                                >
+                                  <Text style={[styles.priorityOptionText, selected && styles.priorityOptionTextSelected]}>
+                                    {label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        ) : (
+                          <Text style={styles.priorityHint}>Inicia sesión para marcar la prioridad de este producto.</Text>
+                        )}
                       </View>
                     </>
                   )}
@@ -2708,6 +2777,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     flexShrink: 1,
   },
+  priorityCard: { marginTop: 8, padding: 10, borderRadius: 12, backgroundColor: '#f0fdf4', gap: 7 },
+  priorityTitle: { color: '#14532d', fontSize: 12, fontWeight: '700' },
+  priorityHint: { color: '#64748b', fontSize: 10, lineHeight: 14 },
+  priorityOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  priorityOption: { minHeight: 36, justifyContent: 'center', paddingHorizontal: 10, borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 18, backgroundColor: '#ffffff' },
+  priorityOptionSelected: { borderColor: '#15803d', backgroundColor: '#dcfce7' },
+  priorityOptionText: { color: '#475569', fontSize: 11, fontWeight: '600' },
+  priorityOptionTextSelected: { color: '#166534', fontWeight: '700' },
   demoRatingRow: {
     flexDirection: 'row',
     alignItems: 'center',

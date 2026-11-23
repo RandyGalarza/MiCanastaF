@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS public.reportes_precio (
     precio_reportado NUMERIC NOT NULL CHECK (precio_reportado > 0),
     comentario TEXT,
     fecha_reporte TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    confirmaciones INT NOT NULL DEFAULT 1,
+    confirmaciones INT NOT NULL DEFAULT 0,
     estado TEXT NOT NULL DEFAULT 'aprobado'
 );
 
@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS public.confirmaciones_reporte (
     fecha TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (id_reporte, id_usuario)
 );
+ALTER TABLE public.reportes_precio ALTER COLUMN confirmaciones SET DEFAULT 0;
 
 -- Datos privados del hogar compartido. Estas tablas no reciben la política anónima general.
 CREATE TABLE IF NOT EXISTS public.hogares (
@@ -265,7 +266,8 @@ BEGIN
               'hogares',
               'hogar_miembros',
               'invitaciones_hogar',
-              'movimientos_hogar_compartidos'
+              'movimientos_hogar_compartidos',
+              'chat_cuotas_diarias'
           )
     LOOP
         EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I;', 'Anon acceso total ' || tbl, tbl);
@@ -548,3 +550,135 @@ CREATE POLICY movimientos_hogar_eliminar_propios ON public.movimientos_hogar_com
 
 GRANT SELECT ON public.hogares, public.hogar_miembros, public.invitaciones_hogar TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.movimientos_hogar_compartidos TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.eliminar_mi_cuenta()
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_auth_user_id UUID := auth.uid();
+    v_email TEXT;
+    v_profile_count BIGINT;
+BEGIN
+    IF v_auth_user_id IS NULL THEN
+        RAISE EXCEPTION 'Inicia sesión para eliminar tu cuenta.';
+    END IF;
+
+    SELECT lower(account.email)
+    INTO v_email
+    FROM auth.users AS account
+    WHERE account.id = v_auth_user_id;
+
+    IF v_email IS NULL THEN
+        RAISE EXCEPTION 'No se encontró la cuenta autenticada.';
+    END IF;
+
+    SELECT count(*)
+    INTO v_profile_count
+    FROM public.usuarios AS profile
+    WHERE lower(profile.correo) = v_email;
+
+    IF v_profile_count > 1 THEN
+        RAISE EXCEPTION 'Hay más de un perfil asociado a este correo. Contacta soporte antes de eliminar la cuenta.';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.hogares AS household
+        WHERE household.creado_por = v_auth_user_id
+    ) THEN
+        RAISE EXCEPTION 'Transfiere o resuelve la propiedad del hogar compartido antes de eliminar tu cuenta.';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.hogar_miembros AS member
+        WHERE member.auth_user_id = v_auth_user_id
+          AND member.rol = 'admin'
+    ) THEN
+        RAISE EXCEPTION 'Transfiere la administración de tus hogares compartidos antes de eliminar tu cuenta.';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.movimientos_hogar_compartidos AS movement
+        WHERE movement.creado_por = v_auth_user_id
+    ) THEN
+        RAISE EXCEPTION 'Resuelve los movimientos que registraste en el hogar compartido antes de eliminar tu cuenta.';
+    END IF;
+
+    DELETE FROM public.facturas AS invoice
+    WHERE invoice.id_usuario IN (
+        SELECT profile.id_usuario
+        FROM public.usuarios AS profile
+        WHERE lower(profile.correo) = v_email
+    );
+
+    DELETE FROM public.invitaciones_hogar AS invitation
+    WHERE lower(invitation.correo_invitado) = v_email;
+
+    DELETE FROM public.usuarios AS profile
+    WHERE lower(profile.correo) = v_email;
+
+    DELETE FROM auth.users AS account
+    WHERE account.id = v_auth_user_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No se pudo eliminar la cuenta autenticada.';
+    END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.eliminar_mi_cuenta() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.eliminar_mi_cuenta() FROM anon;
+GRANT EXECUTE ON FUNCTION public.eliminar_mi_cuenta() TO authenticated;
+
+-- Cuota privada del asistente: una fila por cuenta, reiniciada por día en Colombia.
+CREATE TABLE IF NOT EXISTS public.chat_cuotas_diarias (
+    auth_user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL,
+    consultas INTEGER NOT NULL DEFAULT 0 CHECK (consultas BETWEEN 0 AND 10)
+);
+
+ALTER TABLE public.chat_cuotas_diarias ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Anon acceso total chat_cuotas_diarias" ON public.chat_cuotas_diarias;
+REVOKE ALL ON TABLE public.chat_cuotas_diarias FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.chat_cuotas_diarias TO service_role;
+
+CREATE OR REPLACE FUNCTION public.consumir_cuota_chat_diaria(p_auth_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_fecha DATE := (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::DATE;
+    v_permitido BOOLEAN;
+BEGIN
+    IF p_auth_user_id IS NULL THEN
+        RETURN FALSE;
+    END IF;
+
+    INSERT INTO public.chat_cuotas_diarias AS cuota_actual (auth_user_id, fecha, consultas)
+    VALUES (p_auth_user_id, v_fecha, 1)
+    ON CONFLICT (auth_user_id) DO UPDATE
+    SET fecha = EXCLUDED.fecha,
+        consultas = CASE
+            WHEN cuota_actual.fecha < EXCLUDED.fecha THEN 1
+            ELSE cuota_actual.consultas + 1
+        END
+    WHERE cuota_actual.fecha < EXCLUDED.fecha
+       OR (
+            cuota_actual.fecha = EXCLUDED.fecha
+            AND cuota_actual.consultas < 10
+       )
+    RETURNING TRUE INTO v_permitido;
+
+    RETURN COALESCE(v_permitido, FALSE);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.consumir_cuota_chat_diaria(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.consumir_cuota_chat_diaria(UUID) TO service_role;

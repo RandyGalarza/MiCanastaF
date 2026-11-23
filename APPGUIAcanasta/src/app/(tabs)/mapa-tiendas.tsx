@@ -94,6 +94,10 @@ export default function MapaTiendasScreen() {
   useFocusEffect(useCallback(() => { void loadStores(); }, [loadStores]));
 
   const locatedStores = useMemo(() => stores.filter(hasValidLocation), [stores]);
+  const hasDemoReferenceAddresses = useMemo(
+    () => stores.some((store) => /\(referencia demo\)/i.test(store.direccion ?? '')),
+    [stores]
+  );
   const storesInRange = useMemo(() => userLocation
     ? locatedStores.filter((store) =>
         distance(userLocation.latitude, userLocation.longitude, Number(store.latitud), Number(store.longitud)) <= NEARBY_RADIUS_KM
@@ -152,6 +156,9 @@ export default function MapaTiendasScreen() {
         <View style={styles.headingCopy}><Text style={styles.title} accessibilityRole="header">Tiendas cerca de ti</Text><Text style={styles.subtitle}>Compara precios y encuentra mercados</Text></View>
         <Pressable onPress={() => void locateUser()} style={styles.locationButton} accessibilityRole="button" accessibilityLabel="Centrar mapa en mi ubicación"><Ionicons name="locate-outline" size={19} color="#166534" /></Pressable>
       </View>
+      {hasDemoReferenceAddresses
+        ? <Text style={styles.demoNotice}>Las direcciones de referencia demo son aleatorias y no están verificadas.</Text>
+        : null}
       {cheapest && <View style={styles.cheapestCard}><Ionicons name="pricetag-outline" size={18} color="#15803d"/><Text style={styles.cheapestText}>Menor precio a menos de 3 km, para {commonProductIds.length} productos en común: <Text style={styles.bold}>{cheapest.nombre}</Text> · {money(cheapest.canasta_estimada)}</Text></View>}
       {locationMessage ? <Text style={styles.notice}>{locationMessage}</Text> : null}
       {userLocation && !cheapest && !loading && !error ? <Text style={styles.notice}>Para recomendar la opción más barata necesitamos al menos dos tiendas con precios registrados para los mismos productos dentro de 3 km.</Text> : null}
@@ -160,7 +167,7 @@ export default function MapaTiendasScreen() {
           ? <StoreMap stores={userLocation ? comparableStores : sortedNearby} cheapestId={cheapest?.id_comercio} region={region} onRegionChange={setRegion} userLocation={userLocation ?? undefined} showsUserLocation={Boolean(userLocation)} onSelect={setSelected} />
           : <View style={styles.mapNotice}><Ionicons name="map-outline" size={20} color="#b45309"/><Text style={styles.muted}>Configura GOOGLE_MAPS_API_KEY en el entorno de compilación de Android para habilitar el mapa.</Text></View>}
         {loading ? <View style={styles.mapNotice}><ActivityIndicator color="#168344"/><Text style={styles.muted}>Cargando tiendas…</Text></View> : error ? <View style={styles.mapNotice}><Ionicons name="cloud-offline-outline" size={20} color="#64748b"/><Text style={styles.muted}>No pudimos cargar las tiendas.</Text><Pressable onPress={() => void loadStores()}><Text style={styles.retry}>Intentar de nuevo</Text></Pressable></View> : locatedStores.length === 0 ? <View pointerEvents="none" style={styles.mapNotice}><Ionicons name="location-outline" size={20} color="#168344"/><Text style={styles.muted}>Mapa de Riohacha · Agrega coordenadas a los comercios para ver sus marcadores.</Text></View> : null}
-        {selectedStore && <View style={styles.selectedCard}><Text style={styles.bold} numberOfLines={1}>{selectedStore.nombre}</Text><Text style={styles.muted} numberOfLines={1}>{selectedStore.direccion || selectedStore.tipo_comercio || 'Comercio local'} · {userLocation ? `Productos en común: ${money(selectedStore.canasta_estimada)}` : 'Activa tu ubicación para comparar precios.'}</Text></View>}
+        {selectedStore && <View style={styles.selectedCard}><Text style={styles.bold} numberOfLines={1}>{selectedStore.nombre}</Text><Text style={styles.muted} numberOfLines={2}>{selectedStore.direccion || selectedStore.tipo_comercio || 'Comercio local'} · {userLocation ? `Productos en común: ${money(selectedStore.canasta_estimada)}` : 'Activa tu ubicación para comparar precios.'}</Text></View>}
       </View>
       <View style={styles.listHeader}><Text style={styles.listTitle}>Comercios</Text><Text style={styles.muted}>{userLocation ? `${sortedNearby.length} cercanos` : `${locatedStores.length} ubicados`} · {stores.length - locatedStores.length} sin ubicación</Text></View>
       <ScrollView horizontal style={styles.storeScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storeRow}>
@@ -180,6 +187,7 @@ function distance(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f7f9f6', paddingTop: 12 },
+  demoNotice: { marginHorizontal: 16, marginTop: 5, color: '#64748b', fontSize: 10 },
   header: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 },
   headingIcon: { width: 40, height: 40, borderRadius: 14, backgroundColor: '#eaf5e9', alignItems: 'center', justifyContent: 'center' },
   headingCopy: { flex: 1, gap: 3 }, title: { color: '#193d27', fontSize: 18, fontWeight: '800' }, subtitle: { color: '#718076', fontSize: 11 },

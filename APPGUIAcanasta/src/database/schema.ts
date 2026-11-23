@@ -72,6 +72,23 @@ CREATE TABLE IF NOT EXISTS productos (
         ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS prioridades_producto (
+    id_prioridad INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    id_producto INTEGER NOT NULL,
+    nivel TEXT NOT NULL CHECK (nivel IN ('basico', 'importante', 'puede_esperar')),
+    UNIQUE (id_usuario, id_producto),
+
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (id_producto)
+        REFERENCES productos(id_producto)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS calificaciones_productos (
     id_calificacion INTEGER PRIMARY KEY,
     id_producto INTEGER NOT NULL,
@@ -150,6 +167,22 @@ CREATE TABLE IF NOT EXISTS compras (
     total REAL NOT NULL,
     detalles_json TEXT NOT NULL,
 
+    FOREIGN KEY (id_usuario)
+        REFERENCES usuarios(id_usuario)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS direcciones_entrega (
+    id_compra INTEGER PRIMARY KEY,
+    id_usuario INTEGER NOT NULL,
+    direccion TEXT NOT NULL,
+    fecha_actualizacion TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (id_compra)
+        REFERENCES compras(id_compra)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
     FOREIGN KEY (id_usuario)
         REFERENCES usuarios(id_usuario)
         ON UPDATE CASCADE
@@ -294,7 +327,7 @@ CREATE TABLE IF NOT EXISTS reportes_precio (
     precio_reportado REAL NOT NULL,
     comentario TEXT,
     fecha_reporte TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    confirmaciones INTEGER NOT NULL DEFAULT 1,
+    confirmaciones INTEGER NOT NULL DEFAULT 0,
     estado TEXT NOT NULL DEFAULT 'aprobado',
 
     FOREIGN KEY (id_producto)

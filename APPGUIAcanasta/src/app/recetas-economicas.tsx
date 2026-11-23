@@ -2,6 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Link, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useAuth } from '@/contexts/auth-context';
+import { Perecedero, obtenerPerecederos } from '@/repositories/perecederoRepository';
 import { obtenerCatalogoParaRecomendacion } from '@/repositories/productoRepository';
 import type { ProductoParaRecomendacion } from '@/repositories/productoRepository';
 import { recomendarRecetasEconomicas } from '@/utils/recetas-economicas';
@@ -10,25 +12,39 @@ const money = (value: number) => `$${Number(value).toLocaleString('es-CO')}`;
 const parseAmount = (value: string) => Number(value.replace(/\D/g, ''));
 
 export default function RecetasEconomicasScreen() {
+  const { user } = useAuth();
   const [catalog, setCatalog] = useState<ProductoParaRecomendacion[]>([]);
+  const [inventory, setInventory] = useState<Perecedero[]>([]);
   const [budgetText, setBudgetText] = useState('30000');
   const [budget, setBudget] = useState(30000);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const recipes = useMemo(() => recomendarRecetasEconomicas(catalog, budget), [budget, catalog]);
+  const availableItems = useMemo(
+    () => inventory.filter((item) => item.consumido === 0),
+    [inventory]
+  );
+  const recipes = useMemo(
+    () => recomendarRecetasEconomicas(catalog, budget, availableItems.map((item) => item.nombre)),
+    [availableItems, budget, catalog]
+  );
 
   const loadCatalog = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setCatalog(await obtenerCatalogoParaRecomendacion());
+      const [products, pantry] = await Promise.all([
+        obtenerCatalogoParaRecomendacion(),
+        user ? obtenerPerecederos(user.id_usuario) : Promise.resolve([]),
+      ]);
+      setCatalog(products);
+      setInventory(pantry);
     } catch (loadError) {
       console.error('No se pudo cargar el catálogo para las recetas:', loadError);
       setError('No pudimos consultar los precios del catálogo. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useFocusEffect(useCallback(() => { void loadCatalog(); }, [loadCatalog]));
 
@@ -62,6 +78,17 @@ export default function RecetasEconomicasScreen() {
         </View>
         <Text style={styles.budgetHint}>El estimado considera comprar un empaque de cada ingrediente; las porciones pueden dejar sobrantes y los precios varían por tienda.</Text>
       </View>
+      <View style={styles.pantryCard}>
+        <View style={styles.pantryCopy}>
+          <Text style={styles.pantryTitle}>Aprovecha lo que ya tienes</Text>
+          <Text style={styles.pantryHint}>
+            {availableItems.length
+              ? `${availableItems.length} alimentos registrados en tu inventario. Los ingredientes coincidentes se descuentan del costo estimado.`
+              : 'Registra tus alimentos para verlos reflejados en las recetas.'}
+          </Text>
+        </View>
+        <Link href="/perecederos" style={styles.pantryLink}>Mi inventario</Link>
+      </View>
 
       {error ? (
         <View style={styles.errorCard}>
@@ -87,14 +114,19 @@ export default function RecetasEconomicasScreen() {
             </View>
           </View>
           <View style={styles.estimateRow}>
-            <Text style={styles.estimateLabel}>Ingredientes estimados</Text>
+            <Text style={styles.estimateLabel}>Costo estimado por comprar</Text>
             <Text style={styles.estimateAmount}>{money(recipe.costoEstimado)}</Text>
           </View>
           <Text style={styles.subheading}>Ingredientes</Text>
           {recipe.ingredientes.map((ingredient) => (
             <View key={ingredient.producto.id_producto} style={styles.ingredientRow}>
-              <Text style={styles.ingredientName}>{ingredient.cantidad} · {ingredient.producto.nombre}</Text>
-              <Text style={styles.ingredientCost}>{money(ingredient.costoEstimado)}</Text>
+              <View style={styles.ingredientCopy}>
+                <Text style={styles.ingredientName}>{ingredient.cantidad} · {ingredient.producto.nombre}</Text>
+                {ingredient.disponibleEnCasa ? <Text style={styles.pantryAvailable}>Ya lo tienes registrado</Text> : null}
+              </View>
+              <Text style={styles.ingredientCost}>
+                {ingredient.disponibleEnCasa ? 'En casa' : money(ingredient.costoEstimado)}
+              </Text>
             </View>
           ))}
           <Text style={styles.subheading}>Preparación</Text>
@@ -107,7 +139,7 @@ export default function RecetasEconomicasScreen() {
           </View>
         </View>
       ))}
-      <Text style={styles.disclaimer}>Las cantidades y costos son orientativos, no sustituyen recomendaciones nutricionales profesionales.</Text>
+      <Text style={styles.disclaimer}>El inventario usa los alimentos no consumidos que registraste en Perecederos; la coincidencia se basa en el nombre del producto. Cantidades y costos son orientativos, no sustituyen recomendaciones nutricionales profesionales.</Text>
     </ScrollView>
   );
 }
@@ -127,6 +159,11 @@ const styles = StyleSheet.create({
   applyButton: { minWidth: 82, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: '#bbf7d0', paddingHorizontal: 13 },
   applyText: { color: '#14532d', fontSize: 12, fontWeight: '800' },
   budgetHint: { color: '#dcfce7', fontSize: 10, lineHeight: 15 },
+  pantryCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 16, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0' },
+  pantryCopy: { flex: 1, gap: 3 },
+  pantryTitle: { color: '#14532d', fontSize: 13, fontWeight: '700' },
+  pantryHint: { color: '#64748b', fontSize: 10, lineHeight: 15 },
+  pantryLink: { color: '#166534', fontSize: 11, fontWeight: '700' },
   errorCard: { padding: 13, borderRadius: 13, backgroundColor: '#fef2f2', gap: 6 },
   error: { color: '#b91c1c', fontSize: 12 },
   retry: { color: '#168344', fontSize: 11, fontWeight: '800', paddingVertical: 5 },
@@ -143,7 +180,9 @@ const styles = StyleSheet.create({
   estimateAmount: { color: '#15803d', fontSize: 15, fontWeight: '900' },
   subheading: { color: '#365e3e', fontSize: 11, fontWeight: '800', marginTop: 2 },
   ingredientRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  ingredientCopy: { flex: 1, gap: 2 },
   ingredientName: { flex: 1, color: '#536358', fontSize: 10, lineHeight: 15 },
+  pantryAvailable: { color: '#15803d', fontSize: 10, fontWeight: '600' },
   ingredientCost: { color: '#536358', fontSize: 10, fontWeight: '700' },
   step: { color: '#536358', fontSize: 10, lineHeight: 16 },
   nutritionNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, padding: 10, borderRadius: 11, backgroundColor: '#f0f7ef', marginTop: 2 },
